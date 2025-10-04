@@ -1,0 +1,513 @@
+import { useState, useEffect, useMemo } from 'react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Separator } from '@/components/ui/separator';
+import { Download, Search, FileText, FileSpreadsheet, Calendar, DollarSign, AlertCircle, ArrowUpDown } from 'lucide-react';
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
+import { Tenant, Property } from '../tenant/types';
+
+type PaymentStatus = 'Paid' | 'Unpaid' | 'Advance';
+
+interface Payment {
+  id: string;
+  tenantId: string;
+  amount: number;
+  date: string;
+  status: PaymentStatus;
+  month: string;
+  year: number;
+  notes?: string;
+  paymentMethod?: string;
+}
+
+interface BillingReportsProps {
+  user?: { role?: string };
+}
+
+const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
+
+const BillingReports = ({ user }: BillingReportsProps) => {
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [properties, setProperties] = useState<Property[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Current date for reference
+  const currentDate = new Date();
+  const currentYear = currentDate.getFullYear();
+  const currentMonth = MONTHS[currentDate.getMonth()];
+  
+  // State for filters
+  const [selectedYear, setSelectedYear] = useState(currentYear.toString());
+  const [selectedMonth, setSelectedMonth] = useState('All');
+  const [statusFilter, setStatusFilter] = useState<PaymentStatus | 'All'>('All');
+  
+  // Generate years for dropdown (current year and 5 years back)
+  const years = Array.from({ length: 6 }, (_, i) => (currentYear - i).toString());
+
+  // Load data from localStorage
+  useEffect(() => {
+    const loadData = () => {
+      try {
+        setIsLoading(true);
+        const savedPayments = localStorage.getItem('rental_payments');
+        const savedTenants = localStorage.getItem('rental_tenants');
+        const savedProperties = localStorage.getItem('rental_properties');
+        
+        if (savedPayments) setPayments(JSON.parse(savedPayments));
+        if (savedTenants) setTenants(JSON.parse(savedTenants));
+        if (savedProperties) setProperties(JSON.parse(savedProperties));
+        setError(null);
+      } catch (err) {
+        console.error('Error loading data:', err);
+        setError('Failed to load data. Please try refreshing the page.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    loadData();
+  }, []);
+
+  // Helper functions
+  const getTenantName = (tenantId: string) => {
+    const tenant = tenants.find(t => t.id === tenantId);
+    return tenant ? tenant.name : 'Unknown Tenant';
+  };
+
+  const getPropertyName = (tenantId: string) => {
+    const tenant = tenants.find(t => t.id === tenantId);
+    if (!tenant) return 'Unknown Property';
+    const property = properties.find(p => p.id === tenant.propertyId);
+    return property ? property.name : 'Unknown Property';
+  };
+
+  // Filter and process payment data
+  const { filteredPayments, totalIncome, totalExpenses, totalProfit, totalOverdue, totalAdvance, 
+    collectionRate, paymentStats, monthlyIncomeData } = useMemo(() => {
+    
+    // Apply filters
+    const filtered = payments.filter(payment => {
+      const yearMatch = payment.year.toString() === selectedYear;
+      const monthMatch = selectedMonth === 'All' || payment.month === selectedMonth;
+      const statusMatch = statusFilter === 'All' || payment.status === statusFilter;
+      const searchMatch = searchQuery === '' || 
+        getTenantName(payment.tenantId).toLowerCase().includes(searchQuery.toLowerCase()) ||
+        getPropertyName(payment.tenantId).toLowerCase().includes(searchQuery.toLowerCase());
+      
+      return yearMatch && monthMatch && statusMatch && searchMatch;
+    });
+
+    // Calculate totals
+    const income = filtered
+      .filter(p => p.status === 'Paid')
+      .reduce((sum, p) => sum + p.amount, 0);
+
+    const overdue = filtered
+      .filter(p => p.status === 'Unpaid')
+      .reduce((sum, p) => sum + p.amount, 0);
+
+    const advance = filtered
+      .filter(p => p.status === 'Advance')
+      .reduce((sum, p) => sum + p.amount, 0);
+
+    // Calculate expenses (assuming expenses are stored in localStorage)
+    const expenses = JSON.parse(localStorage.getItem('rental_expenses') || '[]')
+      .filter((e: any) => {
+        if (!e.date) return false;
+        const expenseDate = new Date(e.date);
+        const yearMatch = expenseDate.getFullYear().toString() === selectedYear;
+        const monthMatch = selectedMonth === 'All' || 
+          MONTHS[expenseDate.getMonth()] === selectedMonth;
+        return yearMatch && monthMatch;
+      })
+      .reduce((sum: number, e: any) => sum + (e.amount || 0), 0);
+
+    const rate = filtered.length > 0 ? 
+      (filtered.filter(p => p.status === 'Paid').length / filtered.length) * 100 : 0;
+
+    // Payment method statistics
+    const methods = filtered.reduce((acc: Record<string, number>, p) => {
+      const method = p.paymentMethod || 'Other';
+      acc[method] = (acc[method] || 0) + p.amount;
+      return acc;
+    }, {});
+
+    // Generate monthly data for charts
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const monthlyData = Array.from({ length: 6 }).map((_, i) => {
+      const d = new Date();
+      d.setMonth(d.getMonth() - (5 - i));
+      const monthKey = monthNames[d.getMonth()];
+      
+      const monthlyPayments = payments.filter(p => 
+        new Date(p.date).getMonth() === d.getMonth() && 
+        new Date(p.date).getFullYear() === d.getFullYear()
+      );
+      
+      return {
+        month: monthKey,
+        income: monthlyPayments
+          .filter(p => p.status === 'Paid')
+          .reduce((sum, p) => sum + p.amount, 0),
+        unpaid: monthlyPayments
+          .filter(p => p.status === 'Unpaid')
+          .reduce((sum, p) => sum + p.amount, 0),
+        advance: monthlyPayments
+          .filter(p => p.status === 'Advance')
+          .reduce((sum, p) => sum + p.amount, 0),
+      };
+    });
+
+    return {
+      filteredPayments: filtered,
+      totalIncome: income,
+      totalExpenses: expenses,
+      totalProfit: income - expenses,
+      totalOverdue: overdue,
+      totalAdvance: advance,
+      collectionRate: rate,
+      paymentStats: Object.entries(methods).map(([name, value]) => ({
+        name,
+        value: Number((value as number).toFixed(2))
+      })),
+      monthlyIncomeData: monthlyData
+    };
+  }, [payments, selectedYear, selectedMonth, statusFilter, searchQuery, tenants, properties]);
+
+  // Format currency
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    }).format(amount);
+  };
+
+  // Export functions
+  const exportToPDF = () => {
+    const period = selectedMonth === 'All' ? selectedYear : `${selectedMonth} ${selectedYear}`;
+    const content = `
+RENTAL MANAGEMENT COMPREHENSIVE REPORT
+Period: ${period}
+Generated: ${new Date().toLocaleDateString('en-IN')}
+
+=================================
+FINANCIAL SUMMARY
+=================================
+Total Income: ${formatCurrency(totalIncome)}
+Total Expenses: ${formatCurrency(totalExpenses)}
+Net Profit: ${formatCurrency(totalProfit)}
+Total Overdue: ${formatCurrency(totalOverdue)}
+Total Advance: ${formatCurrency(totalAdvance)}
+Collection Rate: ${collectionRate.toFixed(1)}%
+
+=================================
+PAYMENT METHODS
+=================================
+${paymentStats.map((item: any) => 
+  `${item.name}: ${formatCurrency(item.value)}`
+).join('\n')}
+`;
+
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `rental-report-${period.replace(' ', '-')}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+        <p>{error}</p>
+        <button 
+          onClick={() => window.location.reload()}
+          className="mt-2 px-4 py-2 bg-red-100 hover:bg-red-200 rounded"
+        >
+          Refresh Page
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Billing & Reports</h1>
+          <p className="text-muted-foreground">
+            Track payments, generate reports, and manage finances
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={exportToPDF}>
+            <FileText className="mr-2 h-4 w-4" />
+            Export PDF
+          </Button>
+          <Button variant="outline" size="sm" onClick={exportToPDF}>
+            <FileSpreadsheet className="mr-2 h-4 w-4" />
+            Export Excel
+          </Button>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="md:col-span-2">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search tenants or properties..."
+              className="pl-9"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+        </div>
+        <Select value={selectedYear} onValueChange={setSelectedYear}>
+          <SelectTrigger>
+            <Calendar className="mr-2 h-4 w-4 opacity-50" />
+            <SelectValue placeholder="Select year" />
+          </SelectTrigger>
+          <SelectContent>
+            {years.map(year => (
+              <SelectItem key={year} value={year}>{year}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+          <SelectTrigger>
+            <Calendar className="mr-2 h-4 w-4 opacity-50" />
+            <SelectValue placeholder="Select month" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="All">All Months</SelectItem>
+            {MONTHS.map(month => (
+              <SelectItem key={month} value={month}>{month}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Stats Cards */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Income</CardTitle>
+            <DollarSign className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{formatCurrency(totalIncome)}</div>
+            <p className="text-xs text-muted-foreground">
+              +20.1% from last month
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Expenses</CardTitle>
+            <AlertCircle className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{formatCurrency(totalExpenses)}</div>
+            <p className="text-xs text-muted-foreground">
+              +5.2% from last month
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Collection Rate</CardTitle>
+            <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{collectionRate.toFixed(1)}%</div>
+            <div className="mt-2">
+              <Progress value={collectionRate} className="h-2" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Overdue Payments</CardTitle>
+            <AlertCircle className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{formatCurrency(totalOverdue)}</div>
+            <p className="text-xs text-muted-foreground">
+              {filteredPayments.filter(p => p.status === 'Unpaid').length} unpaid invoices
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Charts */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Income & Expenses</CardTitle>
+            <CardDescription>Monthly overview of your income and expenses</CardDescription>
+          </CardHeader>
+          <CardContent className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={monthlyIncomeData}>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                <XAxis dataKey="month" />
+                <YAxis />
+                <Tooltip formatter={(value) => formatCurrency(Number(value))} />
+                <Legend />
+                <Line 
+                  type="monotone" 
+                  dataKey="income" 
+                  name="Income" 
+                  stroke="#0088FE" 
+                  strokeWidth={2} 
+                  dot={{ r: 4 }}
+                  activeDot={{ r: 6 }} 
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="expenses" 
+                  name="Expenses" 
+                  stroke="#FF8042" 
+                  strokeWidth={2}
+                  dot={{ r: 4 }}
+                  activeDot={{ r: 6 }} 
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Payment Methods</CardTitle>
+            <CardDescription>Distribution of payments by method</CardDescription>
+          </CardHeader>
+          <CardContent className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={paymentStats}
+                  cx="50%"
+                  cy="50%"
+                  labelLine={false}
+                  outerRadius={80}
+                  fill="#8884d8"
+                  dataKey="value"
+                  nameKey="name"
+                  label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                >
+                  {paymentStats.map((entry: any, index: number) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(value) => formatCurrency(Number(value))} />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Recent Payments */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Recent Payments</CardTitle>
+              <CardDescription>
+                {selectedMonth === 'All' 
+                  ? `All payments for ${selectedYear}` 
+                  : `Payments for ${selectedMonth} ${selectedYear}`}
+              </CardDescription>
+            </div>
+            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as PaymentStatus | 'All')}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Filter by status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="All">All Statuses</SelectItem>
+                <SelectItem value="Paid">Paid</SelectItem>
+                <SelectItem value="Unpaid">Unpaid</SelectItem>
+                <SelectItem value="Advance">Advance</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Tenant</th>
+                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Property</th>
+                  <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">Amount</th>
+                  <th className="text-center py-3 px-4 text-sm font-medium text-muted-foreground">Status</th>
+                  <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">Date</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {filteredPayments.length > 0 ? (
+                  filteredPayments.map((payment) => (
+                    <tr key={payment.id} className="hover:bg-muted/50">
+                      <td className="py-3 px-4">{getTenantName(payment.tenantId)}</td>
+                      <td className="py-3 px-4">{getPropertyName(payment.tenantId)}</td>
+                      <td className="py-3 px-4 text-right font-medium">
+                        {formatCurrency(payment.amount)}
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <Badge 
+                          variant={statusVariant[payment.status]}
+                          className="capitalize"
+                        >
+                          {payment.status}
+                        </Badge>
+                      </td>
+                      <td className="py-3 px-4 text-right text-sm text-muted-foreground">
+                        {new Date(payment.date).toLocaleDateString()}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={5} className="py-8 text-center text-muted-foreground">
+                      No payments found matching your criteria
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+};
+
+export default BillingReports;
