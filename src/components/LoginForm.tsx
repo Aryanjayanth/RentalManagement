@@ -8,7 +8,7 @@ import { toast } from '@/hooks/use-toast';
 import { Eye, EyeOff, Lock, User, Building2 } from 'lucide-react';
 
 interface LoginFormProps {
-  onLogin: (userData: any) => void;
+  onLogin: (userData: { username: string; name: string; role: string; email: string }) => void;
 }
 
 const LoginForm = ({ onLogin }: LoginFormProps) => {
@@ -148,7 +148,11 @@ const LoginForm = ({ onLogin }: LoginFormProps) => {
         {/* Footer */}
         <div className="mt-8 text-center">
           <p className="text-sm text-gray-500">
-            © 2024 Rental Management System. All rights reserved.
+            © 2025 Rental Management System. All rights reserved.
+            <br />
+            <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent font-semibold">
+              Built by Aryan
+            </span>
           </p>
         </div>
       </div>
