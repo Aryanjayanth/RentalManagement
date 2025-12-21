@@ -1,7 +1,7 @@
 
 import * as React from 'react';
 import { useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -9,6 +9,10 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/hooks/use-toast';
 import { Payment } from './generateRentDueRecords';
+import Receipt from '@/components/Receipt';
+import useReceipt from '@/hooks/useReceipt';
+import { format } from 'date-fns';
+import { Printer } from 'lucide-react';
 
 interface PaymentUpdateDialogProps {
   open: boolean;
@@ -39,6 +43,9 @@ const PaymentUpdateDialog = ({
   const [paymentMethod, setPaymentMethod] = useState('Cash');
   const [actualDate, setActualDate] = useState(new Date().toISOString().split('T')[0]);
   const [actualAmount, setActualAmount] = useState('');
+  
+  // Receipt functionality
+  const { isOpen, receiptData, showReceipt, hideReceipt } = useReceipt();
   
   // Initialize form when payment changes
   React.useEffect(() => {
@@ -197,131 +204,87 @@ const PaymentUpdateDialog = ({
   const dueDate = new Date(payment.year, monthIndex + 1, 5);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Update Payment - {tenantName}</DialogTitle>
+    <>
+      {isOpen && receiptData && (
+        <Receipt
+          {...receiptData}
+          onClose={hideReceipt}
+        />
+      )}
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-md">
+          <DialogHeader className="flex flex-row justify-between items-center">
+            <DialogTitle>Update Payment - {tenantName}</DialogTitle>
+            {payment?.status === 'Paid' && (
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="gap-2"
+                onClick={() => showReceiptForPayment(payment)}
+              >
+                <Printer className="h-4 w-4" />
+                Print Receipt
+              </Button>
+            )}
+          </DialogHeader>
+
           <div className="text-sm text-gray-600 space-y-1">
             <p>{payment.month} {payment.year} - ₹{payment.amount.toLocaleString()}</p>
             <p className="text-xs">Due Date: {dueDate.toLocaleDateString('en-IN')}</p>
           </div>
-        </DialogHeader>
 
-        <div className="space-y-6">
-          <div>
-            <Label className="text-base font-medium">Payment Status</Label>
-            <RadioGroup 
-              value={selectedStatus} 
-              onValueChange={(value: PaymentStatus) => setSelectedStatus(value)} 
-              className="mt-2 space-y-2"
-            >
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="Paid" id="paid" />
-                <Label htmlFor="paid" className="flex items-center gap-2">
-                  ✅ Mark as Paid
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="Partial" id="partial" />
-                <Label htmlFor="partial" className="flex items-center gap-2">
-                  💰 Mark as Partial Payment
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="Unpaid" id="unpaid" />
-                <Label htmlFor="unpaid" className="flex items-center gap-2">
-                  ❌ Mark as Unpaid
-                </Label>
-              </div>
-            </RadioGroup>
-          </div>
-
-          {(selectedStatus === 'Paid' || selectedStatus === 'Partial') && (
-            <>
-              <div>
-                <Label className="block text-sm font-medium mb-2">Payment Method</Label>
-                <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Cash">💵 Cash</SelectItem>
-                    <SelectItem value="UPI">📱 UPI</SelectItem>
-                    <SelectItem value="Bank Transfer">🏦 Bank Transfer</SelectItem>
-                    <SelectItem value="Check">📋 Check</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <Label className="block text-sm font-medium mb-2">Date Paid</Label>
-                <Input
-                  type="date"
-                  value={actualDate}
-                  onChange={(e) => setActualDate(e.target.value)}
-                />
-              </div>
-
-              <div>
-                <div className="grid grid-cols-2 gap-4 mb-3">
-                  <div className="p-3 bg-gray-50 rounded-md">
-                    <div className="text-xs text-gray-500">Total Due</div>
-                    <div className="font-medium">₹{totalDue.toLocaleString()}</div>
-                  </div>
-                  <div className="p-3 bg-blue-50 rounded-md">
-                    <div className="text-xs text-blue-600">Amount Paid</div>
-                    <div className="font-medium">
-                      {amountPaid > 0 ? `₹${amountPaid.toLocaleString()}` : '—'}
-                    </div>
-                  </div>
+          <div className="space-y-6">
+            <div>
+              <Label className="text-base font-medium">Payment Status</Label>
+              <RadioGroup 
+                value={selectedStatus} 
+                onValueChange={(value: PaymentStatus) => setSelectedStatus(value)} 
+                className="mt-2 space-y-2"
+              >
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="Paid" id="paid" />
+                  <Label htmlFor="paid">Paid</Label>
                 </div>
-                
-                <Label className="block text-sm font-medium mb-2">
-                  Amount to Pay Now (₹)
-                </Label>
-                <Input
-                  type="number"
-                  value={actualAmount}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setActualAmount(value);
-                    if (!value) return;
-                    
-                    const paid = Number(value);
-                    const totalPaid = amountPaid + paid;
-                    
-                    if (totalPaid >= totalDue) {
-                      setSelectedStatus('Paid');
-                    } else if (paid > 0) {
-                      setSelectedStatus('Partial');
-                    } else {
-                      setSelectedStatus('Unpaid');
-                    }
-                  }}
-                  placeholder={`Remaining: ₹${remainingDue.toLocaleString()}`}
-                  max={remainingDue}
-                  min={0}
-                  step="0.01"
-                />
-                
-                {selectedStatus === 'Partial' && (
-                  <div className="mt-3 p-3 bg-amber-50 border border-amber-100 rounded-md">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-amber-700">Remaining Balance:</span>
-                      <span className="font-medium">₹{remainingDue.toLocaleString()}</span>
-                    </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="Unpaid" id="unpaid" />
+                  <Label htmlFor="unpaid">Unpaid</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="Partial" id="partial" />
+                  <Label htmlFor="partial">Partial Payment</Label>
+                </div>
+              </RadioGroup>
+              
+              {selectedStatus === 'Partial' && (
+                <div className="mt-4">
+                  <Label htmlFor="amount">Amount Paid</Label>
+                  <div className="relative mt-1">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">₹</span>
+                    <Input
+                      id="amount"
+                      type="number"
+                      value={actualAmount}
+                      onChange={(e) => setActualAmount(e.target.value)}
+                      className="pl-8"
+                      min={0}
+                      max={payment?.amount}
+                      step="1"
+                    />
+                  </div>
+                  <div className="mt-2 text-sm text-gray-600">
+                    <div>Total Due: <span className="font-medium">₹{payment?.amount.toLocaleString()}</span></div>
+                    <div>Remaining: <span className="font-medium">₹{remainingDue.toLocaleString()}</span></div>
                     {amountPaid > 0 && (
                       <div className="mt-1 text-xs text-amber-600">
                         (Including previous payment of ₹{amountPaid.toLocaleString()})
                       </div>
                     )}
                   </div>
-                )}
-              </div>
-            </>
-          )}
+                </div>
+              )}
+            </div>
 
-          {selectedStatus === 'Unpaid' && (
+            {selectedStatus === 'Unpaid' && (
             <div className="bg-red-50 p-4 rounded-lg">
               <p className="text-sm text-red-700 mb-3">
                 You can notify the tenant about all pending payments via WhatsApp
@@ -347,7 +310,8 @@ const PaymentUpdateDialog = ({
           </div>
         </div>
       </DialogContent>
-    </Dialog>
+      </Dialog>
+    </>
   );
 };
 

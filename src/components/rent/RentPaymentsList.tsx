@@ -3,6 +3,8 @@ import { useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import Receipt from '@/components/Receipt';
+import useReceipt from '@/hooks/useReceipt';
 import PaymentUpdateDialog from './PaymentUpdateDialog';
 import { Payment } from './generateRentDueRecords';
 
@@ -35,6 +37,10 @@ const RentPaymentsList = ({
 }: RentPaymentsListProps) => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
+  const [showReceiptDialog, setShowReceiptDialog] = useState(false);
+  
+  // Receipt functionality
+  const { isOpen, receiptData, showReceipt, hideReceipt } = useReceipt();
 
   const handlePaymentClick = (payment: Payment) => {
     setSelectedPayment(payment);
@@ -78,6 +84,73 @@ const RentPaymentsList = ({
     window.open(whatsappUrl, '_blank');
   };
 
+  const handleUpdatePayment = (payment: Payment) => {
+    setSelectedPayment(payment);
+    setDialogOpen(true);
+  };
+
+  const handlePaymentSuccess = (payment: Payment, status: string) => {
+    console.log('handlePaymentSuccess called with:', { payment, status });
+    try {
+      if (!payment) {
+        console.error('No payment data provided');
+        return;
+      }
+      
+      console.log('Payment data:', {
+        id: payment.id,
+        tenantId: payment.tenantId,
+        amount: payment.amount,
+        month: payment.month,
+        year: payment.year,
+        paymentMethod: payment.paymentMethod
+      });
+      
+      const customerName = getTenantName(payment.tenantId);
+      console.log('Customer name:', customerName);
+      
+      // Get all unpaid payments for this tenant
+      const unpaidPayments = allPayments.filter(p => 
+        p.tenantId === payment.tenantId && 
+        p.status !== 'Paid' && 
+        p.id !== payment.id
+      );
+      
+      // Format remaining dues
+      const remainingDues = unpaidPayments.map(p => ({
+        month: p.month,
+        year: p.year,
+        amount: p.amount,
+        dueDate: new Date(p.year, new Date(`${p.month} 1, ${p.year}`).getMonth() + 1, 5).toLocaleDateString('en-IN')
+      }));
+      
+      // Show receipt with payment details
+      const receiptData = {
+        orderId: `PAY-${payment.id.slice(0, 8).toUpperCase()}`,
+        customerName: customerName,
+        items: [
+          {
+            name: `Rent for ${payment.month} ${payment.year}`,
+            quantity: 1,
+            price: payment.amount,
+            dueDate: new Date(payment.year, new Date(`${payment.month} 1, ${payment.year}`).getMonth() + 1, 5).toLocaleDateString('en-IN'),
+            status: payment.status
+          }
+        ],
+        total: payment.amount,
+        paymentMethod: payment.paymentMethod || 'Cash',
+        date: new Date().toISOString(),
+        remainingDues: remainingDues
+      };
+      
+      console.log('Calling showReceipt with:', receiptData);
+      showReceipt(receiptData);
+      console.log('After showReceipt call');
+    } catch (error) {
+      console.error('Error showing receipt:', error);
+    }
+  };
+
   if (!payments.length) {
     return (
       <div className="text-center py-16">
@@ -90,6 +163,12 @@ const RentPaymentsList = ({
 
   return (
     <>
+      {isOpen && receiptData && (
+        <Receipt
+          {...receiptData}
+          onClose={hideReceipt}
+        />
+      )}
       <div className="space-y-4">
         {payments
           .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
@@ -170,15 +249,25 @@ const RentPaymentsList = ({
                       </div>
                     </div>
                     {user?.role !== 'Staff' && (
-                      <div className="flex flex-col space-y-2 ml-6">
+                      <div className="flex flex-col space-y-2">
                         <Button
                           size="sm"
-                          variant="default"
-                          onClick={() => handlePaymentClick(payment)}
-                          className="w-32 bg-blue-600 hover:bg-blue-700"
+                          variant="outline"
+                          onClick={() => handleUpdatePayment(payment)}
+                          className="w-32"
                         >
-                          📝 Update Status
+                          {payment.status === 'Paid' ? 'View Details' : 'Update Status'}
                         </Button>
+                        {payment.status === 'Paid' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handlePaymentSuccess(payment, payment.status)}
+                            className="w-32 bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200"
+                          >
+                            🖨️ Print Receipt
+                          </Button>
+                        )}
                         {payment.status === 'Unpaid' && (
                           <Button
                             size="sm"
