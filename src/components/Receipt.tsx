@@ -1,7 +1,6 @@
-import React from 'react';
-import { Button } from './ui/button';
-import { Download, Printer, X } from 'lucide-react';
-import { useReactToPrint } from 'react-to-print';
+import * as React from 'react';
+import { Button } from '@/components/ui/button';
+import { Printer } from 'lucide-react';
 
 interface ReceiptItem {
   name: string;
@@ -11,155 +10,92 @@ interface ReceiptItem {
   status?: string;
 }
 
+interface PendingDue {
+  month: string;
+  year: number;
+  dueDate: string;
+  amount: number;
+}
+
 interface ReceiptProps {
   orderId: string;
+  date: string | Date;
   customerName: string;
-  items: ReceiptItem[];
-  total: number;
   paymentMethod: string;
-  date: string;
-  remainingDues?: Array<{
-    month: string;
-    year: number;
-    amount: number;
-    dueDate: string;
-  }>;
+  items: ReceiptItem[];
+  remainingDues?: PendingDue[];
   onClose: () => void;
 }
 
-const Receipt = React.forwardRef<HTMLDivElement, ReceiptProps>(({
-  orderId,
-  customerName,
-  items,
-  total,
-  paymentMethod,
-  date,
-  remainingDues = [],
-  onClose
+const formatDate = (date: string | Date) => {
+  const d = new Date(date);
+  return d.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+};
+
+const Receipt = React.forwardRef<HTMLDivElement, ReceiptProps>(({ 
+  orderId, 
+  date, 
+  customerName, 
+  paymentMethod, 
+  items, 
+  remainingDues, 
+  onClose 
 }, ref) => {
-  const formatDate = (dateString: string) => {
-    const options: Intl.DateTimeFormatOptions = { 
-      year: 'numeric', 
-      month: 'short', 
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    };
-    return new Date(dateString).toLocaleString('en-IN', options);
-  };
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      minimumFractionDigits: 2
-    }).format(amount);
-  };
-
   const componentRef = React.useRef<HTMLDivElement>(null);
+  const total = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
   const handlePrint = () => {
-    const printWindow = window.open('', '_blank');
-    if (printWindow && componentRef.current) {
-      // Get all the styles from the current document
-      const styles = Array.from(document.styleSheets)
-        .map(sheet => {
-          try {
-            return Array.from(sheet.cssRules)
-              .map(rule => rule.cssText)
-              .join('\n');
-          } catch (e) {
-            return '';
-          }
-        })
-        .filter(Boolean)
-        .join('\n');
+    if (typeof window !== 'undefined') {
+      const printWindow = window.open('', '', 'width=600,height=600');
+      if (!printWindow) return;
 
       const printContent = `
         <!DOCTYPE html>
         <html>
           <head>
-            <title>Rental Receipt</title>
+            <title>Receipt - ${orderId}</title>
             <style>
-              ${styles}
-              @page {
-                size: 58mm auto;
-                margin: 0;
-                padding: 0;
-              }
-              body {
-                margin: 0;
-                padding: 0;
-                -webkit-print-color-adjust: exact !important;
-                print-color-adjust: exact !important;
-              }
-              .receipt-print {
-                width: 100%;
-                max-width: 58mm;
-                margin: 0 auto;
-                font-family: 'Courier New', monospace;
-                font-size: 12px;
-                color: #000000;
-                background: white;
-                padding: 0 4px;
-              }
               @media print {
-                body * {
-                  visibility: hidden;
-                }
-                .receipt-print, .receipt-print * {
-                  visibility: visible;
-                }
-                .receipt-print {
-                  position: absolute;
-                  left: 0;
-                  top: 0;
-                  width: 100%;
-                  padding: 0;
-                  margin: 0;
-                }
-                .print-hidden {
-                  display: none !important;
-                }
+                @page { margin: 0; }
+                body { margin: 1.6cm; }
+                .receipt-print { width: 100%; max-width: 80mm; margin: 0 auto; }
               }
+              body { font-family: Arial, sans-serif; }
+              .receipt-content { font-size: 12px; }
             </style>
           </head>
           <body onload="window.print(); window.onafterprint = function() { window.close(); }">
             <div class="receipt-print">
-              ${componentRef.current.innerHTML}
+              ${componentRef.current?.innerHTML || ''}
             </div>
           </body>
         </html>
       `;
-      
+
       printWindow.document.open();
       printWindow.document.write(printContent);
       printWindow.document.close();
     }
   };
 
-  // Remove auto-print
-  // const autoPrintTimeout = React.useRef<NodeJS.Timeout>();
-  // React.useEffect(() => {
-  //   autoPrintTimeout.current = setTimeout(() => {
-  //     handlePrint();
-  //   }, 100);
-    
-  //   return () => {
-  //     if (autoPrintTimeout.current) {
-  //       clearTimeout(autoPrintTimeout.current);
-  //     }
-  //   };
-  // }, [handlePrint]);
-
   return (
-    <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-start justify-center p-4 z-50 overflow-y-auto" onClick={onClose}>
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-[320px] my-8" onClick={e => e.stopPropagation()}>
+    <div 
+      className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-start justify-center p-4 z-50 overflow-y-auto" 
+      onClick={onClose}
+    >
+      <div 
+        className="bg-white rounded-lg shadow-xl w-full max-w-[320px] my-8" 
+        onClick={e => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="sticky top-0 bg-white p-4 border-b border-gray-200 z-10">
           <h2 className="text-lg font-semibold text-gray-800 text-center">Rental Receipt</h2>
         </div>
-        
+
         {/* Receipt Content */}
         <div className="receipt-content p-0" ref={componentRef}>
           {/* Company Info */}
@@ -202,7 +138,9 @@ const Receipt = React.forwardRef<HTMLDivElement, ReceiptProps>(({
                   )}
                 </div>
                 <div className="text-center self-center">{item.quantity}</div>
-                <div className="text-right self-center font-bold">₹{item.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+                <div className="text-right self-center font-bold">
+                  ₹{item.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </div>
               </div>
             ))}
           </div>
@@ -211,7 +149,9 @@ const Receipt = React.forwardRef<HTMLDivElement, ReceiptProps>(({
           <div className="py-2 px-2 border-t-2 border-b-2 border-dashed border-gray-300 my-2">
             <div className="flex justify-between text-[11px] py-0.5">
               <span>Subtotal:</span>
-              <span className="font-bold">₹{total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+              <span className="font-bold">
+                ₹{total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              </span>
             </div>
             <div className="flex justify-between text-[12px] font-extrabold py-0.5">
               <span>TOTAL PAID:</span>
@@ -230,7 +170,9 @@ const Receipt = React.forwardRef<HTMLDivElement, ReceiptProps>(({
                       <span className="font-semibold">{due.month} {due.year}</span>
                       <span className="block text-[9px]">Due: {due.dueDate}</span>
                     </div>
-                    <span className="font-bold">₹{due.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    <span className="font-bold">
+                      ₹{due.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </span>
                   </div>
                 ))}
                 <div className="flex justify-between font-extrabold mt-2 pt-1 border-t border-dashed border-amber-200">
@@ -255,14 +197,14 @@ const Receipt = React.forwardRef<HTMLDivElement, ReceiptProps>(({
 
         {/* Action Buttons - Only visible on screen */}
         <div className="p-4 border-t border-gray-200 bg-white flex gap-3 print:hidden">
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             onClick={onClose}
             className="flex-1 border-gray-300 hover:bg-gray-50"
           >
             Done
           </Button>
-          <Button 
+          <Button
             onClick={handlePrint}
             className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
           >
