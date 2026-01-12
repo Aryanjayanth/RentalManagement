@@ -359,6 +359,7 @@ const RentTrackingContainer = ({ user }: RentTrackingContainerProps) => {
         payments={payments}
         savePayments={savePayments}
         getPropertyName={getPropertyName}
+        getTenantName={getTenantName}
       />
 
       <RentSummaryCards

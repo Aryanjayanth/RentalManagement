@@ -76,7 +76,7 @@ export function TenantsList() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Rent:</span>
-                  <span>${tenant.rentAmount.toLocaleString()}/month</span>
+                  <span>₹{tenant.rentAmount.toLocaleString()}/month</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Lease:</span>

@@ -36,6 +36,14 @@ interface Property {
   id: string;
   name: string;
   address: string;
+  type: string;
+  totalFlats: number;
+  occupiedFlats: number;
+  floors: number;
+  status: 'Fully Occupied' | 'Partially Occupied' | 'Vacant';
+  description: string;
+  image?: string;
+  createdAt: string;
 }
 
 interface LeaseManagementProps {
@@ -91,6 +99,25 @@ const LeaseManagement = ({ onNavigateToRentTracking }: LeaseManagementProps) => 
     setEditingLease(null);
   };
 
+  // Function to get available units for a property
+  const getAvailableUnits = (propertyId: string) => {
+    const property = properties.find(p => p.id === propertyId);
+    if (!property) return 0;
+    
+    // Get all active leases for this property
+    const activeLeases = leases.filter(
+      lease => lease.propertyId === propertyId && lease.status === 'Active'
+    );
+    
+    // Calculate total units already leased
+    const totalLeasedUnits = activeLeases.reduce(
+      (sum, lease) => sum + (lease.units || 1), 0
+    );
+    
+    // Return available units
+    return Math.max(0, property.totalFlats - totalLeasedUnits);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -98,6 +125,24 @@ const LeaseManagement = ({ onNavigateToRentTracking }: LeaseManagementProps) => 
       toast({
         title: "Error",
         description: "Please fill in all required fields.",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    const unitsToLease = Number(formData.units) || 1;
+    const availableUnits = getAvailableUnits(formData.propertyId);
+    
+    // If editing, add back the current lease's units to available units
+    const editingLeaseUnits = editingLease?.units || 0;
+    const actualAvailable = editingLease 
+      ? availableUnits + editingLeaseUnits 
+      : availableUnits;
+    
+    if (unitsToLease > actualAvailable) {
+      toast({
+        title: "Error",
+        description: `Only ${actualAvailable} unit(s) available in this property.`,
         variant: "destructive"
       });
       return;
@@ -248,16 +293,35 @@ const LeaseManagement = ({ onNavigateToRentTracking }: LeaseManagementProps) => 
                   </SelectContent>
                 </Select>
               </div>
-              <div>
-                <label className="block text-sm font-medium mb-2">Number of Units *</label>
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <label className="block text-sm font-medium text-gray-700">Units</label>
+                  {formData.propertyId && (
+                    <span className="text-xs text-gray-500">
+                      Available: {getAvailableUnits(formData.propertyId) + (editingLease?.units || 0)}
+                    </span>
+                  )}
+                </div>
                 <Input
                   type="number"
                   min="1"
+                  max={formData.propertyId ? getAvailableUnits(formData.propertyId) + (editingLease?.units || 0) : undefined}
                   value={formData.units}
-                  onChange={(e) => setFormData(prev => ({ ...prev, units: e.target.value }))}
-                  placeholder="1"
-                  required
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (value === '' || (Number(value) > 0 && (!formData.propertyId || Number(value) <= getAvailableUnits(formData.propertyId) + (editingLease?.units || 0)))) {
+                      setFormData(prev => ({ ...prev, units: value }));
+                    }
+                  }}
+                  placeholder="Number of units"
+                  className="w-full"
+                  disabled={!formData.propertyId}
                 />
+                {formData.propertyId && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    {getAvailableUnits(formData.propertyId) + (editingLease?.units || 0)} unit(s) available
+                  </p>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -449,7 +513,9 @@ const LeaseManagement = ({ onNavigateToRentTracking }: LeaseManagementProps) => 
                             <Calendar className="h-5 w-5 text-yellow-600" />
                             <div>
                               <p className="text-xs text-yellow-600 font-medium">START DATE</p>
-                              <p className="font-bold text-gray-900">{new Date(lease.startDate).toLocaleDateString()}</p>
+                              <p className="font-bold text-gray-900">
+                                {new Date(lease.startDate).toLocaleDateString('en-GB')}
+                              </p>
                             </div>
                           </div>
                         </div>
@@ -459,7 +525,9 @@ const LeaseManagement = ({ onNavigateToRentTracking }: LeaseManagementProps) => 
                             <Calendar className="h-5 w-5 text-red-600" />
                             <div>
                               <p className="text-xs text-red-600 font-medium">END DATE</p>
-                              <p className="font-bold text-gray-900">{new Date(lease.endDate).toLocaleDateString()}</p>
+                              <p className="font-bold text-gray-900">
+                                {new Date(lease.endDate).toLocaleDateString('en-GB')}
+                              </p>
                             </div>
                           </div>
                         </div>
