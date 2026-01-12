@@ -1,5 +1,5 @@
-import { useEffect, useState, useRef } from 'react';
-import { Download, Upload } from 'lucide-react';
+import { useEffect, useState, useRef, useCallback } from 'react';
+import { Download, Upload, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -8,6 +8,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
+import { debounce } from 'lodash';
 
 declare global {
   interface Window {
@@ -397,6 +398,121 @@ interface Position {
   x: number;
   y: number;
 }
+
+export const useAutoSave = () => {
+  const { saveData, updateData } = useStorageManager();
+  const [isSaving, setIsSaving] = useState(false);
+  const [lastSaveTime, setLastSaveTime] = useState<Date | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Create a debounced save function
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const debouncedSave = useCallback(
+    debounce(async <T extends { id?: number }>(
+      storeName: string,
+      data: T
+    ) => {
+      if (!data) return;
+
+      setIsSaving(true);
+      setError(null);
+
+      try {
+        if (data.id) {
+          // Update existing record
+          await updateData(storeName, data.id, data);
+        } else {
+          // Create new record
+          await saveData(storeName, data);
+        }
+        setLastSaveTime(new Date());
+      } catch (err) {
+        console.error('Auto-save failed:', err);
+        setError(err instanceof Error ? err.message : 'Failed to save data');
+        toast.error('Failed to save changes');
+      } finally {
+        setIsSaving(false);
+      }
+    }, 1000), // 1 second debounce
+    []
+  );
+
+  // Cleanup debounce on unmount
+  useEffect(() => {
+    return () => {
+      debouncedSave.cancel();
+    };
+  }, [debouncedSave]);
+
+  return {
+    autoSave: debouncedSave,
+    isSaving,
+    lastSaveTime,
+    error,
+  };
+};
+
+interface AutoSaveStatusProps {
+  isSaving: boolean;
+  lastSaveTime: Date | null;
+  error: string | null;
+}
+
+export const AutoSaveStatus: React.FC<AutoSaveStatusProps> = ({
+  isSaving,
+  lastSaveTime,
+  error,
+}) => {
+  const [showStatus, setShowStatus] = useState(false);
+  const statusRef = useRef<HTMLDivElement>(null);
+
+  // Show status temporarily when it changes
+  useEffect(() => {
+    if (isSaving || error) {
+      setShowStatus(true);
+      const timer = setTimeout(() => setShowStatus(false), 3000);
+      return () => clearTimeout(timer);
+    } else if (lastSaveTime) {
+      setShowStatus(true);
+      const timer = setTimeout(() => setShowStatus(false), 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [isSaving, lastSaveTime, error]);
+
+  if (!showStatus) return null;
+
+  return (
+    <div
+      ref={statusRef}
+      className={`fixed bottom-4 right-4 p-3 rounded-md text-sm flex items-center gap-2 ${
+        error
+          ? 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300'
+          : isSaving
+          ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
+          : 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300'
+      }`}
+    >
+      {error ? (
+        <>
+          <span className="text-red-500">✕</span>
+          <span>Error saving: {error}</span>
+        </>
+      ) : isSaving ? (
+        <>
+          <span className="animate-spin">⟳</span>
+          <span>Saving changes...</span>
+        </>
+      ) : (
+        <>
+          <span>✓</span>
+          <span>
+            Saved {lastSaveTime && new Date(lastSaveTime).toLocaleTimeString()}
+          </span>
+        </>
+      )}
+    </div>
+  );
+};
 
 export const LocalStorageManager = () => {
   const { backupData, restoreData } = useStorageManager();
