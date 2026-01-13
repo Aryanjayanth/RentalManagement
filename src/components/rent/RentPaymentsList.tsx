@@ -1,7 +1,6 @@
-
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import { Button } from "@/components/ui/button";
 import { Badge } from '@/components/ui/badge';
 import Receipt from '@/components/Receipt';
 import useReceipt from '@/hooks/useReceipt';
@@ -59,7 +58,8 @@ const RentPaymentsList = ({
         return monthNames.indexOf(a.month) - monthNames.indexOf(b.month);
       });
 
-    let message = `Dear ${tenantName},\n\nThis is a payment reminder for your rental dues:\n\n`;
+    const propertyName = getPropertyName(payment.tenantId);
+    let message = `Dear ${tenantName} (${propertyName}),\n\nThis is a payment reminder for your rental dues:\n\n`;
     
     let totalDue = 0;
     unpaidPayments.forEach((p, index) => {
@@ -71,8 +71,8 @@ const RentPaymentsList = ({
     });
 
     message += `\nTotal Outstanding: ₹${totalDue.toLocaleString()}\n`;
-    message += `Property: ${getPropertyName(payment.tenantId)}\n`;
-    message += `\nPlease make the payment at your earliest convenience to avoid any inconvenience.\n\nThank you for your cooperation.`;
+    message += `\nPlease make the payment at your earliest convenience to avoid any inconvenience.\n\nThank you for your cooperation.\n\n`;
+    message += `దయచేసి త్వరలో చెల్లించండి. మీ సహకారానికి ధన్యవాదాలు.`;
 
     const encodedMessage = encodeURIComponent(message);
     
@@ -161,6 +161,27 @@ const RentPaymentsList = ({
     );
   }
 
+  // Get unique tenant IDs with unpaid payments
+  const tenantsWithUnpaid = Array.from(
+    new Set(
+      allPayments
+        .filter(payment => payment.status === 'Unpaid')
+        .map(payment => payment.tenantId)
+    )
+  );
+
+  const handleNotifyAll = () => {
+    tenantsWithUnpaid.forEach(tenantId => {
+      const tenantPayments = allPayments.filter(
+        p => p.tenantId === tenantId && p.status === 'Unpaid'
+      );
+      if (tenantPayments.length > 0) {
+        const tenantName = getTenantName(tenantId);
+        handleNotifyTenant(tenantPayments[0], tenantName);
+      }
+    });
+  };
+
   return (
     <>
       {isOpen && receiptData && (
@@ -169,6 +190,18 @@ const RentPaymentsList = ({
           onClose={hideReceipt}
         />
       )}
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-2xl font-bold">Rent Payments</h2>
+        {tenantsWithUnpaid.length > 0 && (
+          <Button
+            onClick={handleNotifyAll}
+            variant="outline"
+            className="bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200"
+          >
+            📢 Notify All Unpaid Tenants
+          </Button>
+        )}
+      </div>
       <div className="space-y-4">
         {payments
           .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())

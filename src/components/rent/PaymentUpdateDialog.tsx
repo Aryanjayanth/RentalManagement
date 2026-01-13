@@ -89,7 +89,13 @@ const PaymentUpdateDialog = ({
   const handleSubmit = () => {
     if (!payment) return;
 
-    if ((selectedStatus === 'Paid' || selectedStatus === 'Partial') && !actualAmount) {
+    // For Complete Payment, always use the full amount
+    if (selectedStatus === 'Paid') {
+      const fullAmount = payment.originalAmount || payment.amount;
+      setActualAmount(fullAmount.toString());
+    }
+    // For Partial Payment, require an amount
+    else if (selectedStatus === 'Partial' && (!actualAmount || Number(actualAmount) <= 0)) {
       return;
     }
 
@@ -239,8 +245,8 @@ const PaymentUpdateDialog = ({
                 <div className="flex items-start space-x-3 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors">
                   <RadioGroupItem value="Paid" id="paid" className="mt-1" />
                   <Label htmlFor="paid" className="flex-1">
-                    <div className="font-medium text-gray-900">Mark as Paid</div>
-                    <p className="text-sm text-gray-500 mt-0.5">Full payment received</p>
+                    <div className="font-medium text-gray-900">Complete Payment</div>
+                    <p className="text-sm text-gray-500 mt-0.5">Record full payment of ₹{(payment.originalAmount || payment.amount).toLocaleString()}</p>
                   </Label>
                 </div>
                 <div className="flex items-start space-x-3 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors">
@@ -293,41 +299,52 @@ const PaymentUpdateDialog = ({
                       <div className="text-lg font-semibold text-gray-900">₹{totalDue.toLocaleString()}</div>
                     </div>
                     <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
-                      <div className="text-xs font-medium text-blue-600 mb-1">Amount Paid</div>
+                      <div className="text-xs font-medium text-blue-600 mb-1">
+                        {selectedStatus === 'Paid' ? 'Rent Amount' : 'Amount Paid'}
+                      </div>
                       <div className="text-lg font-semibold text-blue-800">
-                        {amountPaid > 0 ? `₹${amountPaid.toLocaleString()}` : '—'}
+                        {selectedStatus === 'Paid' 
+                          ? `₹${(payment.originalAmount || payment.amount).toLocaleString()}` 
+                          : amountPaid > 0 
+                            ? `₹${amountPaid.toLocaleString()}` 
+                            : '—'}
                       </div>
                     </div>
                   </div>
                   
                   <div className="space-y-2">
-                    <Label className="block text-sm font-medium text-gray-700">
-                      Amount to Pay Now (₹)
-                    </Label>
-                    <Input
-                    type="number"
-                    value={actualAmount}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      setActualAmount(value);
-                      if (!value) return;
-                      
-                      const paid = Number(value);
-                      const totalPaid = amountPaid + paid;
-                      
-                      if (totalPaid >= totalDue) {
-                        setSelectedStatus('Paid');
-                      } else if (paid > 0) {
-                        setSelectedStatus('Partial');
-                      } else {
-                        setSelectedStatus('Unpaid');
-                      }
-                    }}
-                    placeholder={`Remaining: ₹${remainingDue.toLocaleString()}`}
-                    max={remainingDue}
-                    min={0}
-                    step="0.01"
-                  />
+                    {selectedStatus === 'Partial' && (
+                      <>
+                        <Label className="block text-sm font-medium text-gray-700">
+                          Amount to Pay Now (₹) <span className="text-red-500">*</span>
+                        </Label>
+                        <Input
+                          type="number"
+                          value={actualAmount}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setActualAmount(value);
+                            if (!value) return;
+                            
+                            const paid = Number(value);
+                            const totalPaid = amountPaid + paid;
+                            
+                            if (totalPaid >= totalDue) {
+                              setSelectedStatus('Paid');
+                            } else if (paid > 0) {
+                              setSelectedStatus('Partial');
+                            } else {
+                              setSelectedStatus('Unpaid');
+                            }
+                          }}
+                          placeholder={`Enter amount (max: ₹${remainingDue.toLocaleString()})`}
+                          max={remainingDue}
+                          min={0.01}
+                          step="0.01"
+                          required={true}
+                        />
+                      </>
+                    )}
                   
                   {selectedStatus === 'Partial' && (
                     <div className="mt-3 p-3 bg-amber-50 border border-amber-100 rounded-lg">
