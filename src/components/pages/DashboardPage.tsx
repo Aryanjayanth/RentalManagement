@@ -1,8 +1,9 @@
-
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useEffect, useState } from 'react';
-import { Progress } from '@/components/ui/progress';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
+import { AlertCircle, CheckCircle2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
 import VacantUnitsCard from "../dashboard/VacantUnitsCard";
 import { getVacantUnits, getOccupiedUnits } from "../property/getVacantUnits";
@@ -28,6 +29,19 @@ const DashboardPage = ({ onNavigateToSection, user }: DashboardPageProps) => {
     upcomingPayments: [] as any[],
     vacantUnits: 0
   });
+  const [overdueTenants, setOverdueTenants] = useState<Array<{
+    id: string;
+    name: string;
+    propertyName: string;
+    propertyId: string;
+    leaseId: string;
+    monthlyRent: number;
+    lastPaymentDate: Date;
+    monthsOverdue: number;
+    amountDue: number;
+    isCritical: boolean;
+  }>>([]);
+
   const [monthlyIncomeData, setMonthlyIncomeData] = useState([
     { month: 'Jan', income: 0, expenses: 0 },
     { month: 'Feb', income: 0, expenses: 0 },
@@ -228,6 +242,63 @@ const DashboardPage = ({ onNavigateToSection, user }: DashboardPageProps) => {
         return newData;
     });
 
+    // Find all tenants with unpaid rent
+    const overdueTenantsList = leases
+      .filter((lease: any) => lease.status === 'Active')
+      .map((lease: any) => {
+        const tenant = tenants.find((t: any) => t.id === lease.tenantId);
+        const property = propertiesLocal.find((p: any) => p.id === lease.propertyId);
+        
+        if (!tenant || !property) return null;
+
+        // Get all payments for this tenant
+        const tenantPayments = payments
+          .filter((p: any) => p.tenantId === lease.tenantId && p.status === 'Paid')
+          .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+        // Get the last payment date
+        const lastPaymentDate = tenantPayments.length > 0 
+          ? new Date(tenantPayments[0].date)
+          : new Date(lease.startDate);
+
+        // Calculate months since last payment
+        const currentDate = new Date();
+        const monthsSinceLastPayment = (currentDate.getFullYear() - lastPaymentDate.getFullYear()) * 12 
+          + (currentDate.getMonth() - lastPaymentDate.getMonth());
+        
+        // Calculate next expected payment date (1st of next month after last payment)
+        const nextPaymentDate = new Date(lastPaymentDate);
+        nextPaymentDate.setMonth(nextPaymentDate.getMonth() + 1);
+        nextPaymentDate.setDate(1);
+        
+        // Only include if payment is overdue (even by 1 day)
+        if (currentDate > nextPaymentDate) {
+          return {
+            id: tenant.id,
+            name: tenant.name,
+            propertyName: property.name,
+            propertyId: property.id,
+            leaseId: lease.id,
+            monthlyRent: lease.monthlyRent,
+            lastPaymentDate: lastPaymentDate,
+            monthsOverdue: monthsSinceLastPayment,
+            amountDue: monthsSinceLastPayment * lease.monthlyRent,
+            isCritical: monthsSinceLastPayment >= 3 // Mark if 3+ months overdue for styling
+          };
+        }
+        return null;
+      })
+      .filter(Boolean)
+      // Sort by months overdue (descending) and then by amount due (descending)
+      .sort((a: any, b: any) => {
+        if (b.monthsOverdue !== a.monthsOverdue) {
+          return b.monthsOverdue - a.monthsOverdue; // More months first
+        }
+        return b.amountDue - a.amountDue; // If months are equal, sort by higher amount
+      });
+
+    setOverdueTenants(overdueTenantsList);
+
   }, []);
 
   // --- Property Type Distribution - DYNAMIC ---
@@ -267,7 +338,6 @@ const DashboardPage = ({ onNavigateToSection, user }: DashboardPageProps) => {
       title: 'Total Properties',
       value: stats.totalProperties,
       icon: '🏠',
-      change: '+2 this month',
       color: 'from-blue-500 to-blue-600',
       textColor: 'text-blue-600',
       bgColor: 'bg-blue-50'
@@ -276,7 +346,6 @@ const DashboardPage = ({ onNavigateToSection, user }: DashboardPageProps) => {
       title: 'Monthly Income',
       value: `₹${stats.monthlyIncome.toLocaleString()}`,
       icon: '💰',
-      change: '+12% from last month',
       color: 'from-emerald-500 to-emerald-600',
       textColor: 'text-emerald-600',
       bgColor: 'bg-emerald-50'
@@ -285,7 +354,6 @@ const DashboardPage = ({ onNavigateToSection, user }: DashboardPageProps) => {
       title: 'Active Tenants',
       value: stats.totalTenants,
       icon: '👥',
-      change: '+3 new tenants',
       color: 'from-purple-500 to-purple-600',
       textColor: 'text-purple-600',
       bgColor: 'bg-purple-50'
@@ -294,7 +362,6 @@ const DashboardPage = ({ onNavigateToSection, user }: DashboardPageProps) => {
       title: 'Vacant Units',
       value: vacantUnits,
       icon: '🟡',
-      change: vacantUnits > 0 ? `${vacantUnits} units vacant` : 'Fully occupied',
       color: vacantUnits > 0 ? 'from-yellow-500 to-yellow-400' : 'from-green-500 to-green-600',
       textColor: vacantUnits > 0 ? 'text-yellow-600' : 'text-green-600',
       bgColor: vacantUnits > 0 ? 'bg-yellow-50' : 'bg-green-50'
@@ -303,7 +370,6 @@ const DashboardPage = ({ onNavigateToSection, user }: DashboardPageProps) => {
       title: 'Pending Issues',
       value: stats.overduePayments + stats.pendingProblems,
       icon: '⚠️',
-      change: stats.overduePayments > 0 ? 'Needs attention' : 'All good!',
       color: stats.overduePayments > 0 ? 'from-red-500 to-red-600' : 'from-green-500 to-green-600',
       textColor: stats.overduePayments > 0 ? 'text-red-600' : 'text-green-600',
       bgColor: stats.overduePayments > 0 ? 'bg-red-50' : 'bg-green-50'
@@ -358,8 +424,7 @@ const DashboardPage = ({ onNavigateToSection, user }: DashboardPageProps) => {
                     <p className={`text-3xl font-bold mt-1 ${stat.textColor}`}>{stat.value}</p>
                   </div>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">{stat.change}</span>
+                <div className="flex items-center justify-end">
                   <div className={`h-2 w-16 bg-gradient-to-r ${stat.color} rounded-full opacity-30`}></div>
                 </div>
               </CardContent>
@@ -509,61 +574,91 @@ const DashboardPage = ({ onNavigateToSection, user }: DashboardPageProps) => {
         </Card>
       </div>
 
-      {/* Bottom Enhanced Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Recent Activity */}
+      {/* Overdue Tenants Section */}
+      <div className="w-full">
         <Card className="border-0 shadow-lg">
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <span className="w-3 h-3 bg-green-500 rounded-full mr-3"></span>
-              Recent Activity
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {stats.recentActivity.length > 0 ? stats.recentActivity.map((activity, index) => (
-                <div key={index} className={`flex items-center space-x-4 p-4 bg-${activity.color}-50 dark:bg-${activity.color}-900/20 rounded-xl transition-all hover:shadow-md`}>
-                  <div className={`w-3 h-3 bg-${activity.color}-500 rounded-full flex-shrink-0`}></div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{activity.message}</p>
-                    <p className="text-xs text-muted-foreground">{activity.time}</p>
-                  </div>
-                </div>
-              )) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  <div className="text-4xl mb-2">📋</div>
-                  <p className="text-sm">No recent activity to show</p>
-                </div>
-              )}
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base font-semibold flex items-center">
+                <AlertCircle className="h-4 w-4 mr-2 text-red-500" />
+                Overdue Rent
+              </CardTitle>
+              <div className="flex items-center space-x-3">
+                {overdueTenants.some(t => t.isCritical) && (
+                  <span className="text-xs font-medium bg-red-100 text-red-800 px-2.5 py-1 rounded-full">
+                    {overdueTenants.filter(t => t.isCritical).length} Critical
+                  </span>
+                )}
+                <span className="text-sm text-muted-foreground">
+                  {overdueTenants.length} {overdueTenants.length === 1 ? 'Tenant' : 'Tenants'}
+                </span>
+              </div>
             </div>
-          </CardContent>
-        </Card>
-
-        {/* Upcoming Payments */}
-        <Card className="border-0 shadow-lg">
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <span className="w-3 h-3 bg-yellow-500 rounded-full mr-3"></span>
-              Upcoming Rent Collections
-            </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {stats.upcomingPayments.length > 0 ? stats.upcomingPayments.map((payment, index) => (
-                <div key={index} className="flex items-center justify-between p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-xl hover:shadow-md transition-all">
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{payment.name}</p>
-                    <p className="text-xs text-muted-foreground truncate">{payment.propertyName}</p>
-                    <p className="text-xs text-muted-foreground">Due: {payment.dueDate.toLocaleDateString('en-IN')}</p>
-                  </div>
-                  <div className="text-right ml-4">
-                    <p className="font-bold text-yellow-600">₹{payment.amount.toLocaleString()}</p>
-                  </div>
-                </div>
-              )) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  <div className="text-4xl mb-2">💰</div>
-                  <p className="text-sm">All rent collections are up to date!</p>
+          <CardContent className="p-0">
+            <div className="max-h-[500px] overflow-y-auto">
+              {overdueTenants.length > 0 ? (
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                      <th className="px-4 py-3">Property</th>
+                      <th className="px-3 py-3">Tenant</th>
+                      <th className="px-3 py-3 text-right">Pending</th>
+                      <th className="px-4 py-3 text-right">Amount</th>
+                      <th className="px-4 pr-6 py-3 text-right">Last Paid</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {overdueTenants.map((tenant, index) => (
+                      <tr 
+                        key={index} 
+                        className={cn(
+                          "group",
+                          tenant.isCritical 
+                            ? 'bg-red-50 hover:bg-red-100' 
+                            : 'bg-amber-50 hover:bg-amber-100'
+                        )}
+                      >
+                        <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-foreground truncate max-w-[160px]">
+                          {tenant.propertyName}
+                        </td>
+                        <td className="px-3 py-3 whitespace-nowrap text-sm font-medium text-foreground">
+                          {tenant.name}
+                        </td>
+                        <td className="px-3 py-3 whitespace-nowrap text-right">
+                          <span className={cn(
+                            "inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium",
+                            tenant.isCritical
+                              ? 'bg-red-100 text-red-800' 
+                              : 'bg-amber-100 text-amber-800'
+                          )}>
+                            {tenant.monthsOverdue} {tenant.monthsOverdue === 1 ? 'Month' : 'Months'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-semibold">
+                          <span className={cn(
+                            "font-medium",
+                            tenant.isCritical ? 'text-red-600' : 'text-amber-600'
+                          )}>
+                            ₹{tenant.amountDue.toLocaleString()}
+                          </span>
+                        </td>
+                        <td className="px-4 pr-6 py-3 whitespace-nowrap text-right text-xs text-muted-foreground">
+                          {new Date(tenant.lastPaymentDate).toLocaleDateString('en-IN', {
+                            year: 'numeric',
+                            month: 'short',
+                            day: 'numeric'
+                          })}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="p-8 text-center">
+                  <CheckCircle2 className="h-10 w-10 mx-auto text-green-500 mb-3" />
+                  <h3 className="text-sm font-medium text-foreground mb-1">All payments are up to date</h3>
+                  <p className="text-sm text-muted-foreground">No overdue payments found</p>
                 </div>
               )}
             </div>

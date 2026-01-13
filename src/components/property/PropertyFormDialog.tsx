@@ -48,10 +48,11 @@ const PropertyFormDialog = ({ isOpen, onOpenChange, editingProperty, onSave, onC
     name: '',
     address: '',
     type: '',
-    totalFlats: '',
+    totalFlats: '0',
     floors: '',
     description: '',
-    image: ''
+    image: '',
+    owner: ''
   });
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>('');
@@ -66,7 +67,8 @@ const PropertyFormDialog = ({ isOpen, onOpenChange, editingProperty, onSave, onC
         totalFlats: editingProperty.totalFlats.toString(),
         floors: editingProperty.floors.toString(),
         description: editingProperty.description,
-        image: editingProperty.image || ''
+        image: editingProperty.image || '',
+        owner: (editingProperty as any).owner || ''
       });
       setImagePreview(editingProperty.image || '');
     } else {
@@ -77,7 +79,8 @@ const PropertyFormDialog = ({ isOpen, onOpenChange, editingProperty, onSave, onC
         totalFlats: '',
         floors: '',
         description: '',
-        image: ''
+        image: '',
+        owner: ''
       });
       setImagePreview('');
     }
@@ -139,27 +142,23 @@ const PropertyFormDialog = ({ isOpen, onOpenChange, editingProperty, onSave, onC
       return;
     }
 
-    const status = totalFlats === 0 ? 'Vacant' : 'Partially Occupied';
-
-    const property: Property = {
+    const propertyData: any = {
+      ...formData,
       id: editingProperty?.id || Date.now().toString(),
-      name: formData.name,
-      address: formData.address,
-      type: formData.type,
       totalFlats,
-      occupiedFlats: editingProperty?.occupiedFlats || 0,
       floors,
-      status: editingProperty?.status || status,
-      description: formData.description,
-      image: formData.image,
-      createdAt: editingProperty?.createdAt || new Date().toISOString()
+      occupiedFlats: editingProperty?.occupiedFlats || 0,
+      status: 'Vacant',
+      createdAt: editingProperty?.createdAt || new Date().toISOString(),
+      image: imagePreview || '',
+      owner: formData.owner || 'S.N.B Residency'
     };
 
-    onSave(property, !!editingProperty);
+    onSave(propertyData, !!editingProperty);
     
     toast({
       title: editingProperty ? "Property Updated" : "Property Added",
-      description: `${property.name} has been ${editingProperty ? 'updated' : 'added'} successfully.`
+      description: `${propertyData.name} has been ${editingProperty ? 'updated' : 'added'} successfully.`
     });
 
     onOpenChange(false);
@@ -178,66 +177,95 @@ const PropertyFormDialog = ({ isOpen, onOpenChange, editingProperty, onSave, onC
           <DialogTitle>{editingProperty ? 'Edit Property' : 'Add New Property'}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-2">Property Name *</label>
-            <Input
-              value={formData.name}
-              onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-              placeholder="Enter property name"
-              required
-            />
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium mb-2">Address *</label>
-            <Textarea
-              value={formData.address}
-              onChange={(e) => setFormData(prev => ({ ...prev, address: e.target.value }))}
-              placeholder="Enter full address"
-              required
-            />
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium mb-2">Property Type *</label>
-            <Select value={formData.type} onValueChange={(value) => setFormData(prev => ({ ...prev, type: value }))}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select property type" />
-              </SelectTrigger>
-              <SelectContent>
-                {PROPERTY_TYPES.map((type) => (
-                  <SelectItem key={type} value={type}>
-                    {type}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">Total Units *</label>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <label htmlFor="owner" className="text-sm font-medium">
+                Owner Name
+              </label>
               <Input
+                id="owner"
+                value={formData.owner}
+                onChange={(e) => setFormData({...formData, owner: e.target.value})}
+                className="col-span-3"
+                placeholder="Enter owner's name"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <label htmlFor="name" className="text-sm font-medium">
+                Property Name <span className="text-red-500">*</span>
+              </label>
+              <Input
+                id="name"
+                value={formData.name}
+                onChange={(e) => setFormData({...formData, name: e.target.value})}
+                className="col-span-3"
+                type="text"
+                required
+                placeholder="Enter property name"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <label htmlFor="address" className="text-sm font-medium">
+                Address <span className="text-red-500">*</span>
+              </label>
+              <Input
+                id="address"
+                value={formData.address}
+                onChange={(e) => setFormData({...formData, address: e.target.value})}
+                className="col-span-3"
+                type="text"
+                required
+                placeholder="Enter full address"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <label htmlFor="type" className="text-sm font-medium">
+                Property Type <span className="text-red-500">*</span>
+              </label>
+              <Select 
+                value={formData.type} 
+                onValueChange={(value) => setFormData({...formData, type: value})}
+              >
+                <SelectTrigger className="col-span-3">
+                  <SelectValue placeholder="Select property type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PROPERTY_TYPES.map((type) => (
+                    <SelectItem key={type} value={type}>
+                      {type}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <label htmlFor="totalFlats" className="text-sm font-medium">
+                Total Units <span className="text-red-500">*</span>
+              </label>
+              <Input
+                id="totalFlats"
                 type="number"
+                min="0"
                 value={formData.totalFlats}
-                onChange={(e) => setFormData(prev => ({ ...prev, totalFlats: e.target.value }))}
-                placeholder="0"
-                min="1"
+                onChange={(e) => setFormData({...formData, totalFlats: e.target.value})}
+                className="col-span-3"
                 required
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Floors *</label>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <label htmlFor="floors" className="text-sm font-medium">
+                Floors <span className="text-red-500">*</span>
+              </label>
               <Input
-                type="text"
+                id="floors"
                 value={formData.floors}
                 onChange={(e) => {
                   const value = e.target.value;
-                  // Allow only numbers or 'G' (case insensitive)
                   if (value === '' || /^[0-9]+$/.test(value) || value.toUpperCase() === 'G') {
                     setFormData(prev => ({ ...prev, floors: value }));
                   }
                 }}
+                className="col-span-3"
                 placeholder="G or number"
                 required
               />

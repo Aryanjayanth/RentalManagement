@@ -18,7 +18,10 @@ const RentTrackingContainer = ({ user }: RentTrackingContainerProps) => {
   const [properties, setProperties] = useState<PropertyType[]>([]);
   const [leases, setLeases] = useState<LeaseType[]>([]);
   const [selectedTenant, setSelectedTenant] = useState('all');
+  const [selectedProperty, setSelectedProperty] = useState('all');
+  const [monthsPending, setMonthsPending] = useState('');
   const [filterStatus, setFilterStatus] = useState('All');
+  const [searchTerm, setSearchTerm] = useState('');
 
   const generateRentDueRecords = () => {
     console.log('=== Starting rent due records generation ===');
@@ -307,65 +310,96 @@ const RentTrackingContainer = ({ user }: RentTrackingContainerProps) => {
   };
 
   const isOverdue = (payment: RentDuePayment) => {
+    if (payment.status === 'Paid') return false;
+    
     const paymentDate = new Date(payment.date);
-    const currentDate = new Date();
-    const daysDiff = (currentDate.getTime() - paymentDate.getTime()) / (1000 * 3600 * 24);
-    return payment.status === 'Unpaid' && daysDiff > 5;
+    const today = new Date();
+    return paymentDate < today;
   };
 
-  const filteredPayments = payments.filter(payment => {
-    const statusMatch = filterStatus === 'All' || payment.status === filterStatus;
-    const tenantMatch = selectedTenant === 'all' || payment.tenantId === selectedTenant;
-    return statusMatch && tenantMatch;
-  });
+  // Helper functions for UI
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'Paid': return 'bg-green-100 text-green-800';
+      case 'Unpaid': return 'bg-red-100 text-red-800';
+      case 'Partial': return 'bg-yellow-100 text-yellow-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'Paid': return '✅';
-      case 'Partial': return '💰';
       case 'Unpaid': return '❌';
-      default: return '⚪';
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'Paid': return 'bg-green-100 text-green-800 border-green-200';
-      case 'Partial': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      case 'Unpaid': return 'bg-red-100 text-red-800 border-red-200';
-      default: return 'bg-gray-100 text-gray-800 border-gray-200';
+      case 'Partial': return '⚠️';
+      default: return '❓';
     }
   };
 
   const getPaymentMethodIcon = (method?: string) => {
-    switch (method) {
-      case 'Cash': return '💵';
-      case 'UPI': return '📱';
-      case 'Bank Transfer': return '🏦';
-      case 'Check': return '📋';
+    if (!method) return '💳';
+    switch (method.toLowerCase()) {
+      case 'upi': return '📱';
+      case 'bank transfer': return '🏦';
+      case 'check': return '📝';
+      case 'cash': return '💵';
       default: return '💳';
     }
   };
 
-  const totalPaid = filteredPayments.filter(p => p.status === 'Paid').reduce((sum, p) => sum + p.amount, 0);
-  const totalUnpaid = filteredPayments.filter(p => p.status === 'Unpaid').reduce((sum, p) => sum + p.amount, 0);
+  // Filter payments based on selected filters and search term
+  const filteredPayments = payments.filter((payment) => {
+    // Get tenant and property names for search
+    const tenant = tenants.find(t => t.id === payment.tenantId);
+    const property = properties.find(p => p.id === payment.propertyId);
+    const tenantName = tenant?.name?.toLowerCase() || '';
+    const propertyName = property?.name?.toLowerCase() || '';
+    
+    // Search term matching
+    const searchTermLower = searchTerm.toLowerCase();
+    const searchMatch = searchTerm === '' || 
+      tenantName.includes(searchTermLower) ||
+      propertyName.includes(searchTermLower) ||
+      payment.status.toLowerCase().includes(searchTermLower) ||
+      payment.month.toLowerCase().includes(searchTermLower) ||
+      payment.year.toString().includes(searchTerm) ||
+      payment.amount.toString().includes(searchTerm);
 
+    const statusMatch = filterStatus === 'All' || payment.status === filterStatus;
+    const tenantMatch = selectedTenant === 'all' || payment.tenantId === selectedTenant;
+    
+    // Filter by property
+    const propertyMatch = selectedProperty === 'all' || 
+      (payment.propertyId && payment.propertyId === selectedProperty);
+    
+    // Filter by months pending
+    let monthsPendingMatch = true;
+    if (monthsPending && !isNaN(parseInt(monthsPending))) {
+      const months = parseInt(monthsPending);
+      const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
+                         'July', 'August', 'September', 'October', 'November', 'December'];
+      const paymentMonth = monthNames.indexOf(payment.month);
+      const paymentDate = new Date(payment.year, paymentMonth, 1);
+      const today = new Date();
+      const monthsDiff = (today.getFullYear() - paymentDate.getFullYear()) * 12 + 
+                        today.getMonth() - paymentDate.getMonth();
+      monthsPendingMatch = monthsDiff >= months;
+    }
+    
+    return searchMatch && statusMatch && tenantMatch && propertyMatch && monthsPendingMatch;
+  });
+
+  // Function to save payments to local storage
   return (
-    <div className="space-y-8">
-      <RentTrackingHeader
+    <div className="space-y-6">
+      <RentTrackingHeader 
         generateRentDueRecords={generateRentDueRecords}
+        payments={payments}
+        getTenantName={getTenantName}
+        getPropertyName={getPropertyName}
         tenants={tenants}
         properties={properties}
-        payments={payments}
         savePayments={savePayments}
-        getPropertyName={getPropertyName}
-        getTenantName={getTenantName}
-      />
-
-      <RentSummaryCards
-        totalPaid={totalPaid}
-        totalUnpaid={totalUnpaid}
-        totalAdvance={0}
       />
 
       <RentTrackingFilters
@@ -373,7 +407,14 @@ const RentTrackingContainer = ({ user }: RentTrackingContainerProps) => {
         setFilterStatus={setFilterStatus}
         selectedTenant={selectedTenant}
         setSelectedTenant={setSelectedTenant}
+        selectedProperty={selectedProperty}
+        setSelectedProperty={setSelectedProperty}
+        monthsPending={monthsPending}
+        setMonthsPending={setMonthsPending}
+        searchTerm={searchTerm}
+        setSearchTerm={setSearchTerm}
         tenants={tenants}
+        properties={properties}
       />
 
       <RentPaymentsList

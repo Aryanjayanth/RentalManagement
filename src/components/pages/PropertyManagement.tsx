@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import PropertyFormDialog from '../property/PropertyFormDialog';
 import PropertyListCard from '../property/PropertyListCard';
 import PropertySummaryCards from '../property/PropertySummaryCards';
-import { getVacantUnits } from '../property/getVacantUnits';
+import { getVacantUnits, getOccupiedUnits } from '../property/getVacantUnits';
 import PropertyDetailsView from './PropertyDetailsView';
 
 // Same interface as before
@@ -29,7 +29,10 @@ const PropertyManagement = () => {
   useEffect(() => {
     const savedProperties = localStorage.getItem('rental_properties');
     if (savedProperties) {
-      setProperties(JSON.parse(savedProperties));
+      const parsedProperties = JSON.parse(savedProperties);
+      // Ensure all properties have their status calculated
+      const propertiesWithStatus = parsedProperties.map(calculateStatus);
+      setProperties(propertiesWithStatus);
     }
   }, []);
 
@@ -55,23 +58,45 @@ const PropertyManagement = () => {
   };
 
   // On property form submission (add/edit)
+  const calculateStatus = (property: Property): Property => {
+    const total = Number(property.totalFlats) || 0;
+    const occupied = getOccupiedUnits(property);
+    
+    let status: 'Fully Occupied' | 'Partially Occupied' | 'Vacant' = 'Vacant';
+    
+    if (occupied === 0) {
+      status = 'Vacant';
+    } else if (occupied >= total) {
+      status = 'Fully Occupied';
+    } else {
+      status = 'Partially Occupied';
+    }
+    
+    return { ...property, status, occupiedFlats: occupied };
+  };
+
   const handleSaveProperty = (property: Property, isEdit: boolean) => {
+    const propertyWithStatus = calculateStatus(property);
     let updatedProperties;
+    
     if (isEdit) {
       // Ensure createdAt is preserved for existing properties
-      const propertyWithCreatedAt = {
-        ...property,
-        createdAt: property.createdAt || new Date().toISOString()
+      const propertyWithTimestamps = {
+        ...propertyWithStatus,
+        createdAt: property.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString()
       };
-      updatedProperties = properties.map(p => p.id === property.id ? propertyWithCreatedAt : p);
+      updatedProperties = properties.map(p => p.id === property.id ? propertyWithTimestamps : p);
     } else {
-      // Add createdAt for new properties
-      const propertyWithTimestamp = {
-        ...property,
-        createdAt: new Date().toISOString()
+      // Add timestamps for new properties
+      const propertyWithTimestamps = {
+        ...propertyWithStatus,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
       };
-      updatedProperties = [...properties, propertyWithTimestamp];
+      updatedProperties = [...properties, propertyWithTimestamps];
     }
+    
     saveProperties(updatedProperties);
     setEditingProperty(null);
   };

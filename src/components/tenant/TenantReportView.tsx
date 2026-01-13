@@ -2,7 +2,24 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Home, Calendar, DollarSign, CreditCard, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Home, Calendar, DollarSign, CreditCard, AlertTriangle, Printer } from 'lucide-react';
+
+const formatDate = (dateString: string | Date) => {
+  const date = new Date(dateString);
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = date.getFullYear();
+  return `${day}/${month}/${year}`;
+};
+
+const getStatusEmoji = (status: string) => {
+  switch(status.toLowerCase()) {
+    case 'paid': return '✅';
+    case 'unpaid': return '❌';
+    case 'advance': return '⬆️';
+    default: return '';
+  }
+};
 import { Tenant, Property, Lease } from "./types";
 
 interface Payment {
@@ -14,6 +31,8 @@ interface Payment {
   month: string;
   year: number;
   paymentMethod?: string;
+  referenceNumber?: string;
+  notes?: string;
 }
 
 interface TenantReportViewProps {
@@ -28,21 +47,166 @@ const TenantReportView = ({ tenant, onBack, properties, leases, payments }: Tena
   // Get tenant's leases
   const tenantLeases = leases.filter(lease => lease.tenantId === tenant.id);
   
-  // Get tenant's properties through leases
-  const tenantProperties = tenantLeases.map(lease => 
-    properties.find(property => property.id === lease.propertyId)
-  ).filter(Boolean) as Property[];
+  // Get tenant's properties through leases with enhanced type information
+  const tenantProperties = tenantLeases.map(lease => {
+    const property = properties.find(p => p.id === lease.propertyId);
+    if (!property) return null;
+    
+    return {
+      ...property,
+      // Add lease-specific properties we need to access
+      propertyName: property.name,
+      propertyAddress: property.address,
+      // Add lease details to the property for easy access
+      leaseStart: lease.startDate,
+      leaseEnd: lease.endDate,
+      monthlyRent: lease.monthlyRent,
+      securityDeposit: lease.securityDeposit,
+      status: lease.status
+    };
+  }).filter(Boolean) as (Property & {
+    propertyName: string;
+    propertyAddress: string;
+    leaseStart?: string;
+    leaseEnd?: string;
+    monthlyRent?: number;
+    securityDeposit?: number;
+    status?: string;
+  })[];
 
   // Get tenant's payments
   const tenantPayments = payments.filter(payment => payment.tenantId === tenant.id);
-  
+
+  const handlePrint = () => {
+    const printWindow = window.open('', '', 'width=800,height=600');
+    if (!printWindow) return;
+    
+    // Get active lease
+    const activeLease = tenantProperties[0] || {
+      propertyName: 'N/A',
+      propertyAddress: 'N/A',
+      monthlyRent: 0
+    };
+
+    // Calculate totals
+    const totalPaid = tenantPayments
+      .filter(p => p.status === 'Paid')
+      .reduce((sum, p) => sum + p.amount, 0);
+      
+    const totalDues = tenantPayments
+      .filter(p => p.status === 'Unpaid')
+      .reduce((sum, p) => sum + p.amount, 0);
+
+    // Sort payments by date (newest first)
+    const recentPayments = [...tenantPayments]
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, 12);
+
+    const printContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Tenant Report - ${tenant.name}</title>
+        <style>
+          body { 
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            font-size: 12px;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+          }
+          th, td {
+            border: 1px solid #000;
+            padding: 5px;
+            text-align: left;
+          }
+          th {
+            background-color: #f0f0f0;
+          }
+          h2 {
+            margin-top: 20px;
+            margin-bottom: 5px;
+          }
+        </style>
+      </head>
+      <body>
+        <h1>Tenant Report - ${tenant.name}</h1>
+        <p>Date: ${new Date().toLocaleDateString()}</p>
+        
+        <h2>Tenant Information</h2>
+        <table>
+          <tr><td>Name</td><td>${tenant.name}</td></tr>
+          <tr><td>Phone</td><td>${tenant.phone || 'N/A'}</td></tr>
+          ${tenant.email ? `<tr><td>Email</td><td>${tenant.email}</td></tr>` : ''}
+          ${tenant.emergencyContact?.name ? `<tr><td>Emergency Contact</td><td>${tenant.emergencyContact.name} (${tenant.emergencyContact.phone || 'N/A'})</td></tr>` : ''}
+        </table>
+        
+        <h2>Property Details</h2>
+        <table>
+          <tr><td>Property</td><td>${activeLease.propertyName || 'N/A'}</td></tr>
+          <tr><td>Address</td><td>${activeLease.propertyAddress || 'N/A'}</td></tr>
+          <tr><td>Monthly Rent</td><td>₹${activeLease.monthlyRent?.toLocaleString('en-IN') || '0'}</td></tr>
+        </table>
+        
+        <h2>Payment Summary</h2>
+        <table>
+          <tr><td>Total Paid</td><td>₹${totalPaid.toLocaleString('en-IN')}</td></tr>
+          <tr><td>Total Dues</td><td>₹${totalDues.toLocaleString('en-IN')}</td></tr>
+        </table>
+        
+        <h2>Payment History</h2>
+        <table>
+          <tr>
+            <th>Date</th>
+            <th>Month</th>
+            <th>Amount</th>
+            <th>Status</th>
+          </tr>
+          ${recentPayments.map(payment => `
+            <tr>
+              <td>${formatDate(payment.date)}</td>
+              <td>${payment.month} ${payment.year}</td>
+              <td>₹${payment.amount.toLocaleString('en-IN')}</td>
+              <td>${getStatusEmoji(payment.status)} ${payment.status}</td>
+            </tr>
+          `).join('')}
+        </table>
+        
+        <script>
+          window.onload = function() {
+            setTimeout(function() {
+              window.print();
+              window.close();
+            }, 300);
+          };
+        </script>
+      </body>
+      </html>
+    `;
+
+    printWindow.document.open();
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+  };
+
   // Calculate dues
   const unpaidPayments = tenantPayments.filter(payment => payment.status === 'Unpaid');
   const totalDues = unpaidPayments.reduce((sum, payment) => sum + payment.amount, 0);
   const totalPaid = tenantPayments.filter(payment => payment.status === 'Paid').reduce((sum, payment) => sum + payment.amount, 0);
 
-  // Get active lease (fallback if status doesn't exist)
-  const activeLease = tenantLeases.find(lease => lease.status === 'Active') || tenantLeases[0];
+  // Get active lease from tenant properties with fallback
+  const activeLease = tenantProperties[0] || {
+    propertyName: 'N/A',
+    propertyAddress: 'N/A',
+    monthlyRent: 0,
+    securityDeposit: 0,
+    status: 'N/A',
+    leaseStart: '',
+    leaseEnd: ''
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 p-6">
@@ -165,7 +329,7 @@ const TenantReportView = ({ tenant, onBack, properties, leases, payments }: Tena
                         <div className="mt-2 space-y-1">
                           <div className="flex items-center space-x-2 text-sm">
                             <Calendar className="h-4 w-4" />
-                            <span>Lease: {new Date(lease.startDate).toLocaleDateString()} - {new Date(lease.endDate).toLocaleDateString()}</span>
+                            <span>Lease: {formatDate(lease.startDate)} - {formatDate(lease.endDate)}</span>
                           </div>
                           <Badge variant={lease.status === 'Active' ? 'default' : 'secondary'}>
                             {lease.status || 'Unknown'}
@@ -185,39 +349,72 @@ const TenantReportView = ({ tenant, onBack, properties, leases, payments }: Tena
         {/* Payment History */}
         <Card className="border-0 shadow-lg">
           <CardHeader>
-            <CardTitle>Payment History</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle>Payment History</CardTitle>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="ml-4 gap-2"
+                onClick={handlePrint}
+              >
+                <Printer className="h-4 w-4" />
+                Print Receipt
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             {tenantPayments.length > 0 ? (
-              <div className="space-y-3">
-                {tenantPayments
-                  .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-                  .map((payment) => (
-                    <div key={payment.id} className="flex items-center justify-between p-4 border rounded-lg">
-                      <div className="flex-1">
-                        <div className="flex items-center space-x-3">
-                          <span className="font-medium">{payment.month} {payment.year}</span>
-                          <Badge 
-                            variant={payment.status === 'Paid' ? 'default' : payment.status === 'Unpaid' ? 'destructive' : 'secondary'}
-                          >
-                            {payment.status === 'Paid' ? '✅' : payment.status === 'Unpaid' ? '❌' : '⬆️'} {payment.status}
-                          </Badge>
-                          {payment.paymentMethod && (
-                            <Badge variant="outline">{payment.paymentMethod}</Badge>
-                          )}
-                        </div>
-                        <p className="text-gray-600 text-sm">{new Date(payment.date).toLocaleDateString()}</p>
-                      </div>
-                      <div className="text-right">
-                        <div className={`text-lg font-bold ${payment.status === 'Paid' ? 'text-green-600' : 'text-red-600'}`}>
-                          ₹{payment.amount.toLocaleString()}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Month</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Method</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {[...tenantPayments]
+                      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                      .map((payment) => (
+                        <tr key={payment.id} className="hover:bg-gray-50">
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {new Date(payment.date).toLocaleDateString()}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {payment.month} {payment.year}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                            ₹{payment.amount.toLocaleString()}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
+                              ${payment.status === 'Paid' ? 'bg-green-100 text-green-800' : 
+                                payment.status === 'Unpaid' ? 'bg-red-100 text-red-800' : 
+                                'bg-yellow-100 text-yellow-800'}`}>
+                              {payment.status === 'Paid' ? '✅' : payment.status === 'Unpaid' ? '❌' : '⬆️'} {payment.status}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {payment.paymentMethod ? (
+                              <Badge variant="outline">{payment.paymentMethod}</Badge>
+                            ) : 'N/A'}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
               </div>
             ) : (
-              <p className="text-gray-500">No payment records found</p>
+              <div className="text-center py-8">
+                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-100 flex items-center justify-center">
+                  <DollarSign className="h-8 w-8 text-gray-400" />
+                </div>
+                <h3 className="text-lg font-medium text-gray-900 mb-1">No Payment Records</h3>
+                <p className="text-gray-500">No payment history found for this tenant.</p>
+              </div>
             )}
           </CardContent>
         </Card>

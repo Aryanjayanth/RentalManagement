@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { toast } from '@/hooks/use-toast';
-import { User } from 'lucide-react';
+import { User, Search } from 'lucide-react';
 import TenantHeader from "../tenant/TenantHeader";
 import TenantList from "../tenant/TenantList";
 import TenantFormDialog from "../tenant/TenantFormDialog";
@@ -20,6 +21,7 @@ const TenantManagement = () => {
   const [selectedTenant, setSelectedTenant] = useState<Tenant | null>(null);
   const [payments, setPayments] = useState<any[]>([]);
   const [tenantRemainingDues, setTenantRemainingDues] = useState<Record<string, number>>({});
+  const [searchTerm, setSearchTerm] = useState('');
   
   // Calculate remaining due for each tenant when payments change
   useEffect(() => {
@@ -128,6 +130,13 @@ const TenantManagement = () => {
     setSelectedTenant(tenant);
   };
 
+  // Filter tenants based on search term
+  const filteredTenants = tenants.filter(tenant => 
+    tenant.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    tenant.phone.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (tenant.email && tenant.email.toLowerCase().includes(searchTerm.toLowerCase()))
+  );
+
   const renderTenantFormDialog = () => (
     <TenantFormDialog
       open={isAddDialogOpen}
@@ -171,8 +180,31 @@ const TenantManagement = () => {
         >
           {renderTenantFormDialog()}
         </TenantHeader>
+        
+        {/* Search Bar */}
+        <div className="relative max-w-md">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Input
+            type="text"
+            placeholder="Search tenants..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-10 pr-8 border-gray-200 focus:border-blue-500 focus:ring-blue-500"
+          />
+          {searchTerm && (
+            <button
+              onClick={() => setSearchTerm('')}
+              className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1 rounded hover:bg-gray-100"
+            >
+              <svg className="h-3 w-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+        </div>
+        
         <TenantList
-          tenants={tenants}
+          tenants={filteredTenants}
           leases={leases}
           properties={properties}
           onEdit={handleEdit}
@@ -180,6 +212,24 @@ const TenantManagement = () => {
           onTenantClick={handleTenantClick}
           tenantRemainingDues={tenantRemainingDues}
         />
+
+        {filteredTenants.length === 0 && tenants.length > 0 && (
+          <div className="text-center py-16">
+            <div className="w-32 h-32 mx-auto mb-6 rounded-full bg-gradient-to-r from-gray-100 to-gray-200 flex items-center justify-center">
+              <Search className="h-16 w-16 text-gray-400" />
+            </div>
+            <h3 className="text-2xl font-bold text-gray-600 mb-4">No Tenants Found</h3>
+            <p className="text-gray-500 mb-6 max-w-md mx-auto">
+              Try adjusting your search terms to find the tenant you're looking for.
+            </p>
+            <Button 
+              onClick={() => setSearchTerm('')}
+              variant="outline"
+            >
+              Clear Search
+            </Button>
+          </div>
+        )}
 
         {tenants.length === 0 && (
           <div className="text-center py-16">

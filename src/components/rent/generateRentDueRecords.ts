@@ -11,7 +11,7 @@ export interface Payment {
   status: "Paid" | "Unpaid" | "Partial";
   month: string;
   year: number;
-  paymentMethod?: "Cash" | "UPI" | "Bank Transfer" | "Check";
+  paymentMethod?: "Cash" | "UPI" | "Bank Transfer" | "Check" | "Advance";
   paidDate?: string;
   originalAmount?: number; // Original amount before partial payment
   remainingDue?: number;   // Remaining due after partial payment

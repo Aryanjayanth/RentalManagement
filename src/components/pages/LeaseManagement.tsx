@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { toast } from '@/hooks/use-toast';
 import LeaseTerminationDialog from '../lease/LeaseTerminationDialog';
-import { Calendar, MapPin, User, DollarSign, FileText, Plus, Building2, Users } from 'lucide-react';
+import { Calendar, MapPin, User, DollarSign, FileText, Plus, Building2, Users, Search } from 'lucide-react';
 
 interface Lease {
   id: string;
@@ -58,6 +58,7 @@ const LeaseManagement = ({ onNavigateToRentTracking }: LeaseManagementProps) => 
   const [editingLease, setEditingLease] = useState<Lease | null>(null);
   const [terminationDialogOpen, setTerminationDialogOpen] = useState(false);
   const [selectedLease, setSelectedLease] = useState<Lease | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const [formData, setFormData] = useState({
     tenantId: '',
@@ -82,7 +83,7 @@ const LeaseManagement = ({ onNavigateToRentTracking }: LeaseManagementProps) => 
 
   const saveLeases = (updatedLeases: Lease[]) => {
     localStorage.setItem('rental_leases', JSON.stringify(updatedLeases));
-    setLeases(updatedLeases);
+    setLeases([...updatedLeases]); // Force re-render by creating new array 
   };
 
   const resetForm = () => {
@@ -178,6 +179,7 @@ const LeaseManagement = ({ onNavigateToRentTracking }: LeaseManagementProps) => 
 
     setIsAddDialogOpen(false);
     resetForm();
+    setEditingLease(null); // Clear the editing lease state
   };
 
   const handleEdit = (lease: Lease) => {
@@ -235,6 +237,19 @@ const LeaseManagement = ({ onNavigateToRentTracking }: LeaseManagementProps) => 
     return daysUntilExpiry <= 30 && daysUntilExpiry > 0;
   };
 
+  // Filter leases based on search term
+  const filteredLeases = leases.filter(lease => {
+    const tenantName = getTenantName(lease.tenantId).toLowerCase();
+    const propertyName = getPropertyName(lease.propertyId).toLowerCase();
+    const searchLower = searchTerm.toLowerCase();
+    
+    return tenantName.includes(searchLower) ||
+           propertyName.includes(searchLower) ||
+           lease.status.toLowerCase().includes(searchLower) ||
+           lease.monthlyRent.toString().includes(searchLower) ||
+           (lease.terms && lease.terms.toLowerCase().includes(searchLower));
+  });
+
   const activeLeases = leases.filter(l => l.status === 'Active').length;
   const expiredLeases = leases.filter(l => l.status === 'Expired').length;
   const terminatedLeases = leases.filter(l => l.status === 'Terminated').length;
@@ -251,138 +266,170 @@ const LeaseManagement = ({ onNavigateToRentTracking }: LeaseManagementProps) => 
           </h2>
           <p className="text-gray-600 mt-1">Manage rental agreements and lease terms</p>
         </div>
-        <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-          <DialogTrigger asChild>
-            <Button onClick={resetForm} size="lg" className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white shadow-lg">
-              <Plus className="mr-2 h-5 w-5" />
-              Create Lease
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>{editingLease ? 'Edit Lease' : 'Create New Lease'}</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-2">Tenant *</label>
-                <Select value={formData.tenantId} onValueChange={(value) => setFormData(prev => ({ ...prev, tenantId: value }))}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select tenant" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {tenants.map((tenant) => (
-                      <SelectItem key={tenant.id} value={tenant.id}>
-                        {tenant.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-2">Property *</label>
-                <Select value={formData.propertyId} onValueChange={(value) => setFormData(prev => ({ ...prev, propertyId: value }))}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select property" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {properties.map((property) => (
-                      <SelectItem key={property.id} value={property.id}>
-                        {property.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                  <label className="block text-sm font-medium text-gray-700">Units</label>
+        <div className="flex items-center space-x-4">
+          {/* Search Bar */}
+          <div className="relative max-w-md">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <Input
+              type="text"
+              placeholder="Search leases..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10 pr-8 border-gray-200 focus:border-blue-500 focus:ring-blue-500"
+            />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm('')}
+                className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1 rounded hover:bg-gray-100"
+              >
+                <svg className="h-3 w-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
+          <Dialog open={isAddDialogOpen} onOpenChange={(open) => {
+    setIsAddDialogOpen(open);
+    if (!open) {
+      setEditingLease(null);
+      resetForm();
+    }
+  }}>
+            <DialogTrigger asChild>
+              <Button onClick={() => {
+                setIsAddDialogOpen(true);
+                resetForm();
+              }} size="lg" className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white shadow-lg">
+                <Plus className="mr-2 h-5 w-5" />
+                Create Lease
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>{editingLease ? 'Edit Lease' : 'Create New Lease'}</DialogTitle>
+              </DialogHeader>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-2">Tenant *</label>
+                  <Select value={formData.tenantId} onValueChange={(value) => setFormData(prev => ({ ...prev, tenantId: value }))}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select tenant" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {tenants.map((tenant) => (
+                        <SelectItem key={tenant.id} value={tenant.id}>
+                          {tenant.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">Property *</label>
+                  <Select value={formData.propertyId} onValueChange={(value) => setFormData(prev => ({ ...prev, propertyId: value }))}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select property" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {properties.map((property) => (
+                        <SelectItem key={property.id} value={property.id}>
+                          {property.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <label className="block text-sm font-medium text-gray-700">Units</label>
+                    {formData.propertyId && (
+                      <span className="text-xs text-gray-500">
+                        Available: {getAvailableUnits(formData.propertyId) + (editingLease?.units || 0)}
+                      </span>
+                    )}
+                  </div>
+                  <Input
+                    type="number"
+                    min="1"
+                    max={formData.propertyId ? getAvailableUnits(formData.propertyId) + (editingLease?.units || 0) : undefined}
+                    value={formData.units}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (value === '' || (Number(value) > 0 && (!formData.propertyId || Number(value) <= getAvailableUnits(formData.propertyId) + (editingLease?.units || 0)))) {
+                        setFormData(prev => ({ ...prev, units: value }));
+                      }
+                    }}
+                    placeholder="Number of units"
+                    className="w-full"
+                    disabled={!formData.propertyId}
+                  />
                   {formData.propertyId && (
-                    <span className="text-xs text-gray-500">
-                      Available: {getAvailableUnits(formData.propertyId) + (editingLease?.units || 0)}
-                    </span>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {getAvailableUnits(formData.propertyId) + (editingLease?.units || 0)} unit(s) available
+                    </p>
                   )}
                 </div>
-                <Input
-                  type="number"
-                  min="1"
-                  max={formData.propertyId ? getAvailableUnits(formData.propertyId) + (editingLease?.units || 0) : undefined}
-                  value={formData.units}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    if (value === '' || (Number(value) > 0 && (!formData.propertyId || Number(value) <= getAvailableUnits(formData.propertyId) + (editingLease?.units || 0)))) {
-                      setFormData(prev => ({ ...prev, units: value }));
-                    }
-                  }}
-                  placeholder="Number of units"
-                  className="w-full"
-                  disabled={!formData.propertyId}
-                />
-                {formData.propertyId && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    {getAvailableUnits(formData.propertyId) + (editingLease?.units || 0)} unit(s) available
-                  </p>
-                )}
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-2">Start Date *</label>
-                  <Input
-                    type="date"
-                    value={formData.startDate}
-                    onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
-                    required
-                  />
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Start Date *</label>
+                    <Input
+                      type="date"
+                      value={formData.startDate}
+                      onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">End Date *</label>
+                    <Input
+                      type="date"
+                      value={formData.endDate}
+                      onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
+                      required
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Monthly Rent (₹) *</label>
+                    <Input
+                      type="number"
+                      value={formData.monthlyRent}
+                      onChange={(e) => setFormData(prev => ({ ...prev, monthlyRent: e.target.value }))}
+                      placeholder="0"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Security Deposit (₹)</label>
+                    <Input
+                      type="number"
+                      value={formData.securityDeposit}
+                      onChange={(e) => setFormData(prev => ({ ...prev, securityDeposit: e.target.value }))}
+                      placeholder="0"
+                    />
+                  </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-2">End Date *</label>
+                  <label className="block text-sm font-medium mb-2">Terms & Conditions</label>
                   <Input
-                    type="date"
-                    value={formData.endDate}
-                    onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
-                    required
+                    value={formData.terms}
+                    onChange={(e) => setFormData(prev => ({ ...prev, terms: e.target.value }))}
+                    placeholder="Additional lease terms..."
                   />
                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-2">Monthly Rent (₹) *</label>
-                  <Input
-                    type="number"
-                    value={formData.monthlyRent}
-                    onChange={(e) => setFormData(prev => ({ ...prev, monthlyRent: e.target.value }))}
-                    placeholder="0"
-                    required
-                  />
+                <div className="flex space-x-2 pt-4">
+                  <Button type="submit" className="flex-1">
+                    {editingLease ? 'Update Lease' : 'Create Lease'}
+                  </Button>
+                  <Button type="button" variant="outline" onClick={() => setIsAddDialogOpen(false)}>
+                    Cancel
+                  </Button>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium mb-2">Security Deposit (₹)</label>
-                  <Input
-                    type="number"
-                    value={formData.securityDeposit}
-                    onChange={(e) => setFormData(prev => ({ ...prev, securityDeposit: e.target.value }))}
-                    placeholder="0"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-2">Terms & Conditions</label>
-                <Input
-                  value={formData.terms}
-                  onChange={(e) => setFormData(prev => ({ ...prev, terms: e.target.value }))}
-                  placeholder="Additional lease terms..."
-                />
-              </div>
-              <div className="flex space-x-2 pt-4">
-                <Button type="submit" className="flex-1">
-                  {editingLease ? 'Update Lease' : 'Create Lease'}
-                </Button>
-                <Button type="button" variant="outline" onClick={() => setIsAddDialogOpen(false)}>
-                  Cancel
-                </Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       {/* Summary Cards */}
@@ -450,8 +497,8 @@ const LeaseManagement = ({ onNavigateToRentTracking }: LeaseManagementProps) => 
 
       {/* Enhanced Lease Cards */}
       <div className="space-y-6">
-        {leases.length > 0 ? (
-          leases
+        {filteredLeases.length > 0 ? (
+          filteredLeases
             .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
             .map((lease) => (
               <Card key={lease.id} className={`border-0 shadow-xl transition-all hover:shadow-2xl bg-gradient-to-r from-white to-gray-50 ${isLeaseExpiringSoon(lease.endDate) ? 'ring-2 ring-orange-500' : ''}`}>
@@ -576,21 +623,37 @@ const LeaseManagement = ({ onNavigateToRentTracking }: LeaseManagementProps) => 
               </Card>
             ))
         ) : (
-          <div className="text-center py-16">
-            <div className="w-24 h-24 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-6">
-              <FileText className="h-12 w-12 text-white" />
+          filteredLeases.length === 0 && leases.length > 0 ? (
+            <div className="text-center py-16">
+              <div className="w-24 h-24 bg-gradient-to-br from-gray-100 to-gray-200 rounded-full flex items-center justify-center mx-auto mb-6">
+                <Search className="h-12 w-12 text-gray-400" />
+              </div>
+              <h3 className="text-2xl font-bold text-gray-700 mb-3">No Leases Found</h3>
+              <p className="text-gray-500 mb-8 max-w-md mx-auto">Try adjusting your search terms to find lease you're looking for.</p>
+              <Button 
+                onClick={() => setSearchTerm('')}
+                variant="outline"
+              >
+                Clear Search
+              </Button>
             </div>
-            <h3 className="text-2xl font-bold text-gray-700 mb-3">No Leases Created Yet</h3>
-            <p className="text-gray-500 mb-8 max-w-md mx-auto">Create your first lease agreement to start managing tenant relationships and track rental income.</p>
-            <Button 
-              onClick={() => setIsAddDialogOpen(true)}
-              size="lg"
-              className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white shadow-lg"
-            >
-              <Plus className="mr-2 h-5 w-5" />
-              Create First Lease
-            </Button>
-          </div>
+          ) : leases.length === 0 ? (
+            <div className="text-center py-16">
+              <div className="w-24 h-24 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                <FileText className="h-12 w-12 text-white" />
+              </div>
+              <h3 className="text-2xl font-bold text-gray-700 mb-3">No Leases Created Yet</h3>
+              <p className="text-gray-500 mb-8 max-w-md mx-auto">Create your first lease agreement to start managing tenant relationships and track rental income.</p>
+              <Button 
+                onClick={() => setIsAddDialogOpen(true)}
+                size="lg"
+                className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white shadow-lg"
+              >
+                <Plus className="mr-2 h-5 w-5" />
+                Create First Lease
+              </Button>
+            </div>
+          ) : null
         )}
       </div>
 

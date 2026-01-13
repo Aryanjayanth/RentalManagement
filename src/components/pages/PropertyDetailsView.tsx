@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -10,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { ArrowLeft, Edit, Trash2, MapPin, Building, Home, Users, Calendar, DollarSign, FileText, TrendingUp, BarChart3, Download } from 'lucide-react';
+import { ArrowLeft, Edit, Trash2, MapPin, Building, Home, Users, User, Calendar, DollarSign, FileText, TrendingUp, BarChart3, Printer } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from 'recharts';
 import { getVacantUnits, getOccupiedUnits } from '../property/getVacantUnits';
 
@@ -25,6 +25,7 @@ interface Property {
   status: 'Fully Occupied' | 'Partially Occupied' | 'Vacant';
   description: string;
   image?: string;
+  owner?: string;
   createdAt: string;
 }
 
@@ -70,6 +71,30 @@ interface PropertyDetailsViewProps {
   onDelete: (id: string) => void;
 }
 
+const getMonthNumber = (monthName: string) => {
+  const months: {[key: string]: number} = {
+    january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
+    july: 6, august: 7, september: 8, october: 9, november: 10, december: 11
+  };
+  return months[monthName.toLowerCase()] || 0;
+};
+
+const formatDate = (dateString: string | Date | undefined) => {
+  if (!dateString) return 'N/A';
+  try {
+    const date = new Date(dateString);
+    return isNaN(date.getTime()) 
+      ? 'N/A' 
+      : date.toLocaleDateString('en-IN', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric'
+        });
+  } catch (error) {
+    return 'N/A';
+  }
+};
+
 const PropertyDetailsView = ({ property, onBack, onEdit, onDelete }: PropertyDetailsViewProps) => {
   const [leases, setLeases] = useState<Lease[]>([]);
   const [tenants, setTenants] = useState<Tenant[]>([]);
@@ -78,6 +103,9 @@ const PropertyDetailsView = ({ property, onBack, onEdit, onDelete }: PropertyDet
   const [monthlyIncome, setMonthlyIncome] = useState(0);
   const [incomeChartData, setIncomeChartData] = useState<any[]>([]);
   const [occupancyData, setOccupancyData] = useState<any[]>([]);
+  const [paymentFilter, setPaymentFilter] = useState<'all' | 'paid' | 'unpaid' | 'partial'>('all');
+  const [sortBy, setSortBy] = useState<'tenant' | 'period'>('period');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   const vacantUnits = getVacantUnits(property);
   const occupiedUnits = getOccupiedUnits(property);
@@ -183,6 +211,33 @@ const PropertyDetailsView = ({ property, onBack, onEdit, onDelete }: PropertyDet
     const propertyTenantIds = leases.map(lease => lease.tenantId);
     return tenants.filter(tenant => propertyTenantIds.includes(tenant.id));
   };
+
+  const sortedAndFilteredPayments = useMemo(() => {
+    return [...rentPayments]
+      .filter(payment => {
+        if (paymentFilter === 'all') return true;
+        if (paymentFilter === 'unpaid') {
+          return payment.status !== 'Paid' && payment.status !== 'Partial';
+        }
+        // For 'paid' and 'partial' filters, ensure case-insensitive comparison
+        return payment.status.toLowerCase() === paymentFilter.toLowerCase();
+      })
+      .sort((a, b) => {
+        if (sortBy === 'tenant') {
+          const tenantA = tenants.find(t => t.id === a.tenantId)?.name || '';
+          const tenantB = tenants.find(t => t.id === b.tenantId)?.name || '';
+          return sortOrder === 'asc' 
+            ? tenantA.localeCompare(tenantB)
+            : tenantB.localeCompare(tenantA);
+        } else { // sort by period
+          const dateA = new Date(Number(a.year), getMonthNumber(a.month));
+          const dateB = new Date(Number(b.year), getMonthNumber(b.month));
+          return sortOrder === 'asc' 
+            ? dateA.getTime() - dateB.getTime()
+            : dateB.getTime() - dateA.getTime();
+        }
+      });
+  }, [rentPayments, paymentFilter, sortBy, sortOrder, tenants]);
 
   return (
     <div className="space-y-6">
@@ -376,6 +431,12 @@ const PropertyDetailsView = ({ property, onBack, onEdit, onDelete }: PropertyDet
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            {property.owner && (
+              <div className="flex items-center space-x-3">
+                <User className="h-5 w-5 text-gray-400" />
+                <span>Owner: {property.owner}</span>
+              </div>
+            )}
             <div className="flex items-center space-x-3">
               <MapPin className="h-5 w-5 text-gray-400" />
               <span>{property.address}</span>
@@ -383,10 +444,6 @@ const PropertyDetailsView = ({ property, onBack, onEdit, onDelete }: PropertyDet
             <div className="flex items-center space-x-3">
               <Building className="h-5 w-5 text-gray-400" />
               <span>{property.type}</span>
-            </div>
-            <div className="flex items-center space-x-3">
-              <Calendar className="h-5 w-5 text-gray-400" />
-              <span>Added: {new Date(property.createdAt).toLocaleDateString()}</span>
             </div>
             <div className="flex items-center space-x-3">
               <Badge className={getStatusColor(propertyWithStatus.status)}>
@@ -450,7 +507,7 @@ const PropertyDetailsView = ({ property, onBack, onEdit, onDelete }: PropertyDet
         </CardContent>
       </Card>
 
-      {/* Recent Rent Payments */}
+      {/* Rent Payment History */}
       <Card>
         <CardHeader>
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -459,21 +516,231 @@ const PropertyDetailsView = ({ property, onBack, onEdit, onDelete }: PropertyDet
               Rent Payment History
             </CardTitle>
             <div className="flex items-center space-x-2">
-              <Select defaultValue="all">
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="Filter by status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Payments</SelectItem>
-                  <SelectItem value="paid">Paid</SelectItem>
-                  <SelectItem value="partial">Partial</SelectItem>
-                  <SelectItem value="overdue">Overdue</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                </SelectContent>
-              </Select>
-              <Button variant="outline" size="sm">
-                <Download className="h-4 w-4 mr-2" />
-                Export
+              <div className="flex items-center space-x-2">
+                <Select 
+                  value={paymentFilter}
+                  onValueChange={(value) => setPaymentFilter(value as 'all' | 'paid' | 'unpaid' | 'partial')}
+                >
+                  <SelectTrigger className="w-[150px]">
+                    <SelectValue placeholder="Filter payments" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Payments</SelectItem>
+                    <SelectItem value="paid">Paid</SelectItem>
+                    <SelectItem value="unpaid">Unpaid</SelectItem>
+                    <SelectItem value="partial">Partially Paid</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select 
+                  value={sortBy}
+                  onValueChange={(value: 'tenant' | 'period') => {
+                    if (value === sortBy) {
+                      // Toggle sort order if same sort option is selected
+                      setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+                    } else {
+                      // Set new sort option with default order
+                      setSortBy(value);
+                      setSortOrder(value === 'period' ? 'desc' : 'asc');
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-[150px]">
+                    <SelectValue placeholder="Sort by" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="period">
+                      {sortBy === 'period' ? (sortOrder === 'asc' ? '↑ ' : '↓ ') : ''}Period
+                    </SelectItem>
+                    <SelectItem value="tenant">
+                      {sortBy === 'tenant' ? (sortOrder === 'asc' ? '↑ ' : '↓ ') : ''}Tenant
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => {
+                  const printWindow = window.open('', '_blank');
+                  if (printWindow) {
+                    // Get the current filtered and sorted payments
+                    const filteredPayments = [...rentPayments]
+                      .filter(payment => {
+                        if (paymentFilter === 'all') return true;
+                        if (paymentFilter === 'unpaid') {
+                          return payment.status !== 'Paid' && payment.status !== 'Partial';
+                        }
+                        return payment.status.toLowerCase() === paymentFilter.toLowerCase();
+                      })
+                      .sort((a, b) => {
+                        if (sortBy === 'tenant') {
+                          const tenantA = tenants.find(t => t.id === a.tenantId)?.name || '';
+                          const tenantB = tenants.find(t => t.id === b.tenantId)?.name || '';
+                          return sortOrder === 'asc' 
+                            ? tenantA.localeCompare(tenantB)
+                            : tenantB.localeCompare(tenantA);
+                        } else {
+                          const dateA = new Date(Number(a.year), getMonthNumber(a.month));
+                          const dateB = new Date(Number(b.year), getMonthNumber(b.month));
+                          return sortOrder === 'asc' 
+                            ? dateA.getTime() - dateB.getTime()
+                            : dateB.getTime() - dateA.getTime();
+                        }
+                      });
+
+                    const printDate = new Date().toLocaleDateString('en-IN', { 
+                      day: 'numeric', 
+                      month: 'long', 
+                      year: 'numeric'
+                    });
+
+                    const printContent = `
+                      <!DOCTYPE html>
+                      <html>
+                        <head>
+                          <title>Payment History - ${property.name}</title>
+                          <style>
+                            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                            .header { text-align: center; margin-bottom: 15px; }
+                            .property-name { font-size: 24px; font-weight: bold; margin-bottom: 5px; }
+                            .payment-history-header { 
+                              text-align: center; 
+                              margin: 20px 0;
+                              font-size: 18px;
+                              font-weight: 600;
+                            }
+                            .print-date { text-align: right; margin: 10px 0; color: #666; }
+                            table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+                            th { text-align: left; background: #f5f5f5; padding: 8px; border: 1px solid #ddd; }
+                            td { padding: 8px; border: 1px solid #ddd; }
+                            .status { padding: 2px 8px; border-radius: 12px; font-size: 12px; display: inline-block; }
+                            .status-Paid { background: #dcfce7; color: #166534; }
+                            .status-Pending { background: #fef9c3; color: #854d0e; }
+                            .status-Overdue { background: #fee2e2; color: #991b1b; }
+                            .status-Partial { background: #fef3c7; color: #92400e; }
+                            .status-Unpaid { background: #f3f4f6; color: #4b5563; }
+                            .amount { white-space: nowrap; }
+                            .original-amount { text-decoration: line-through; color: #6b7280; font-size: 0.9em; display: block; }
+                            .remaining-due { color: #dc2626; font-size: 0.9em; display: block; }
+                            .payment-method { color: #4b5563; font-size: 0.9em; display: block; }
+                            .footer {
+                              margin-top: 40px;
+                              text-align: right;
+                              padding-top: 20px;
+                              border-top: 1px solid #eee;
+                            }
+                            .owned-by {
+                              font-weight: 600;
+                              color: #444;
+                              font-size: 15px;
+                            }
+                            @media print {
+                              @page { size: auto; margin: 1cm; }
+                              .no-print { display: none !important; }
+                              .footer {
+                                position: fixed;
+                                bottom: 20px;
+                                right: 20px;
+                                border: none;
+                              }
+                            }
+                            h3 { 
+                              margin: 15px 0 5px 0; 
+                              font-size: 18px;
+                              font-weight: 600;
+                              text-align: left;
+                              border-bottom: 2px solid #eee;
+                              padding-bottom: 5px;
+                            }
+                          </style>
+                        </head>
+                        <body>
+                          <div class="header">
+                            <div class="property-name">S.N.B Residency</div>
+                            <div>Old Royal School Building, Near Radham Centre</div>
+                          </div>
+                          <div class="payment-history-header">
+                            PAYMENT HISTORY, ${printDate}
+                          </div>
+                          <div class="footer">
+                            <div class="owned-by">Owned By: ${property.owner || 'S.N.B Residency'}</div>
+                          </div>
+                          ${filteredPayments.length > 0 ? `
+                            <table>
+                              <thead>
+                                <tr>
+                                  <th>Tenant</th>
+                                  <th>Period</th>
+                                  <th>Amount</th>
+                                  <th>Paid On</th>
+                                  <th>Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                ${filteredPayments.map(payment => {
+                                  const tenant = tenants.find(t => t.id === payment.tenantId);
+                                  const isPartial = payment.status === 'Partial' || 
+                                                  (payment.originalAmount && payment.originalAmount !== payment.amount);
+                                  const lease = leases.find(l => l.id === payment.leaseId);
+                                  const dueDate = payment.dueDate || lease?.startDate;
+                                  
+                                  return `
+                                    <tr>
+                                      <td>${tenant?.name || 'Unknown Tenant'}</td>
+                                      <td>${payment.month} ${payment.year}</td>
+                                      <td class="amount">
+                                        ${isPartial && payment.originalAmount ? `
+                                          <div>₹${payment.amount.toLocaleString()}</div>
+                                          <span class="original-amount">Original: ₹${payment.originalAmount.toLocaleString()}</span>
+                                          ${payment.remainingDue ? `
+                                            <span class="remaining-due">Remaining: ₹${payment.remainingDue.toLocaleString()}</span>
+                                          ` : ''}
+                                        ` : `₹${payment.amount.toLocaleString()}`}
+                                      </td>
+                                      <td>
+                                        ${payment.paidDate ? `
+                                          <div>${formatDate(payment.paidDate)}</div>
+                                          ${payment.paymentMethod ? `
+                                            <span class="payment-method">via ${payment.paymentMethod}</span>
+                                          ` : ''}
+                                        ` : 'N/A'}
+                                      </td>
+                                      <td>
+                                        <span class="status status-${payment.status}">
+                                          ${payment.status}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  `;
+                                }).join('')}
+                              </tbody>
+                            </table>
+                          ` : `
+                            <p>No payment records found for the selected filter.</p>
+                          `}
+                          <div class="no-print" style="margin-top: 20px; text-align: center; padding: 10px; border-top: 1px solid #eee;">
+                            <button onclick="window.print()" style="padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                              Print
+                            </button>
+                            <button onclick="window.close()" style="margin-left: 10px; padding: 8px 16px; background: #6b7280; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                              Close
+                            </button>
+                          </div>
+                        </body>
+                      </html>
+                    `;
+                    
+                    printWindow.document.write(printContent);
+                    printWindow.document.close();
+                    printWindow.onload = () => {
+                      // Auto-print is blocked by most browsers, so we'll just focus the window
+                      printWindow.focus();
+                    };
+                  }
+                }}
+              >
+                <Printer className="h-4 w-4 mr-2" />
+                Print
               </Button>
             </div>
           </div>
@@ -487,18 +754,18 @@ const PropertyDetailsView = ({ property, onBack, onEdit, onDelete }: PropertyDet
                     <TableHead>Tenant</TableHead>
                     <TableHead>Period</TableHead>
                     <TableHead>Amount</TableHead>
-                    <TableHead>Due Date</TableHead>
                     <TableHead>Paid On</TableHead>
                     <TableHead>Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rentPayments
-                    .sort((a, b) => new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime())
-                    .slice(0, 10)
-                    .map((payment) => {
+                  {sortedAndFilteredPayments.map((payment) => {
                       const tenant = tenants.find(t => t.id === payment.tenantId);
-                      const isPartial = payment.status === 'Partial' || (payment.originalAmount && payment.originalAmount !== payment.amount);
+                      const isPartial = payment.status === 'Partial' || 
+                                     (payment.originalAmount && payment.originalAmount !== payment.amount);
+                      // Get the lease to find the due date if not set on payment
+                      const lease = leases.find(l => l.id === payment.leaseId);
+                      const dueDate = payment.dueDate || lease?.startDate;
                       
                       return (
                         <TableRow key={payment.id} className="hover:bg-gray-50">
@@ -528,20 +795,9 @@ const PropertyDetailsView = ({ property, onBack, onEdit, onDelete }: PropertyDet
                             )}
                           </TableCell>
                           <TableCell>
-                            {new Date(payment.dueDate).toLocaleDateString('en-IN', {
-                              day: 'numeric',
-                              month: 'short',
-                              year: 'numeric'
-                            })}
-                          </TableCell>
-                          <TableCell>
                             {payment.paidDate ? (
                               <div className="flex flex-col">
-                                {new Date(payment.paidDate).toLocaleDateString('en-IN', {
-                                  day: 'numeric',
-                                  month: 'short',
-                                  year: 'numeric'
-                                })}
+                                {formatDate(payment.paidDate)}
                                 {payment.paymentMethod && (
                                   <span className="text-xs text-gray-500">
                                     via {payment.paymentMethod}
@@ -570,13 +826,6 @@ const PropertyDetailsView = ({ property, onBack, onEdit, onDelete }: PropertyDet
                     })}
                 </TableBody>
               </Table>
-              {rentPayments.length > 10 && (
-                <div className="flex items-center justify-end border-t px-6 py-3">
-                  <Button variant="ghost" size="sm" className="text-blue-600 hover:bg-blue-50">
-                    View All Payments
-                  </Button>
-                </div>
-              )}
             </div>
           ) : (
             <div className="text-center py-12 space-y-4">
